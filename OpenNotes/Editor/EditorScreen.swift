@@ -263,7 +263,7 @@ struct EditorScreen: View {
                     let placing = !editingImages; finishMode(); editingImages = placing
                 } }
             }
-            Button("Sticky note", systemImage: "note.text") { addStickyNote() }
+            Button("Add sticky note", systemImage: "note.text") { addStickyNote() }.accessibilityIdentifier("editor.sticky.add")
             Menu {
                 Button("Add text", systemImage: "text.badge.plus") { addText() }
                     .accessibilityIdentifier("editor.text.add")

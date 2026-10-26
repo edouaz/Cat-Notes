@@ -132,7 +132,7 @@ final class DesignInteractionTests: XCTestCase {
         app.buttons[notebook].tap()
         XCTAssertTrue(app.buttons["editor.insert"].waitForExistence(timeout: 10))
         app.buttons["editor.insert"].tap()
-        app.buttons["Sticky note"].tap()
+        app.buttons["editor.sticky.add"].tap()
         let text = app.textViews["Sticky note text"]
         XCTAssertTrue(text.waitForExistence(timeout: 5))
         text.tap(); text.typeText("Annotation to preserve")
@@ -172,7 +172,10 @@ final class DesignInteractionTests: XCTestCase {
         app.buttons["Ruled"].tap()
         XCTAssertTrue(app.buttons["Replace background"].waitForExistence(timeout: 5))
         screenshot("Confirmation before replacing the PDF background")
-        app.buttons["Cancel"].tap()
+        // iPad confirmation popovers omit the Cancel row and dismiss on an outside tap.
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.exists { cancel.tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.95)).tap() }
         XCTAssertTrue(app.buttons["Ruled"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Ruled"].isSelected)
         app.buttons["Ruled"].tap()
@@ -254,13 +257,15 @@ final class DesignInteractionTests: XCTestCase {
         let token = UUID().uuidString.prefix(8)
         let title = "UI notebook \(token)"
         let parent = "UI Folder \(token)", child = "1"
+        let parentCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "library.folder.", parent)).firstMatch
+        let childCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "library.folder.", child)).firstMatch
         let notebook = try createNotebook()
         try renameNotebook(notebook, to: title)
 
         createFolder(named: parent)
-        reveal(app.buttons[parent]); app.buttons[parent].tap()
+        reveal(parentCard); parentCard.tap()
         createFolder(named: child)
-        reveal(app.buttons[child]); app.buttons[child].tap()
+        reveal(childCard); childCard.tap()
         let parentBreadcrumb = app.scrollViews.buttons[parent].firstMatch
         reveal(parentBreadcrumb, towardTop: true)
         XCTAssertGreaterThanOrEqual(parentBreadcrumb.frame.height, 44)
@@ -269,7 +274,7 @@ final class DesignInteractionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(childBreadcrumb.frame.height, 44)
         screenshot("Nested folders and breadcrumbs")
         parentBreadcrumb.tap()
-        XCTAssertTrue(app.buttons[child].waitForExistence(timeout: 5))
+        XCTAssertTrue(childCard.waitForExistence(timeout: 5))
         let rootBreadcrumb = app.scrollViews.buttons["Documents"].firstMatch
         XCTAssertGreaterThanOrEqual(rootBreadcrumb.frame.height, 44)
         rootBreadcrumb.tap()
@@ -291,8 +296,8 @@ final class DesignInteractionTests: XCTestCase {
         waitUntilDismissed(app.navigationBars["Move to…"])
         waitUntilDismissed(note)
         XCTAssertEqual(select.label, "Select")
-        reveal(app.buttons[parent], towardTop: true); app.buttons[parent].tap()
-        reveal(app.buttons[child]); app.buttons[child].tap()
+        reveal(parentCard, towardTop: true); parentCard.tap()
+        reveal(childCard); childCard.tap()
         XCTAssertTrue(note.waitForExistence(timeout: 5))
         XCTAssertEqual(note.label, title)
         screenshot("Notebook moved into the subfolder")
@@ -317,8 +322,8 @@ final class DesignInteractionTests: XCTestCase {
         waitUntilDismissed(note)
 
         selectFilter("Documents")
-        reveal(app.buttons[parent]); app.buttons[parent].tap()
-        reveal(app.buttons[child]); app.buttons[child].tap()
+        reveal(parentCard); parentCard.tap()
+        reveal(childCard); childCard.tap()
         XCTAssertTrue(note.waitForExistence(timeout: 5))
         XCTAssertTrue(note.isEnabled)
         screenshot("Notebook restored in its subfolder")
@@ -460,6 +465,19 @@ final class DesignInteractionTests: XCTestCase {
             guard let scroll = containers.first(where: { $0.isHittable }) else { break }
             // Native menus can report an unclipped full-screen collection frame.
             let clippedMenu = scroll.elementType == .collectionView && scroll.frame.height >= app.frame.height
+            if clippedMenu {
+                let visible = scroll.buttons.allElementsBoundByIndex.filter { $0.isHittable }
+                let region = visible.reduce(CGRect.null) { $0.union($1.frame) }.intersection(app.frame)
+                if !region.isNull && region.height > 44 {
+                    let x = (region.midX - app.frame.minX) / app.frame.width
+                    let top = (region.minY + region.height * 0.2 - app.frame.minY) / app.frame.height
+                    let bottom = (region.minY + region.height * 0.8 - app.frame.minY) / app.frame.height
+                    let start = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: towardTop ? top : bottom))
+                    let end = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: towardTop ? bottom : top))
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                    continue
+                }
+            }
             let midpoint = clippedMenu ? scroll.frame.minY + scroll.frame.height * 0.25 : scroll.frame.midY
             let towardBeginning = element.exists ? element.frame.midY < midpoint : towardTop
             let upper = clippedMenu ? 0.15 : towardBeginning ? 0.35 : 0.45

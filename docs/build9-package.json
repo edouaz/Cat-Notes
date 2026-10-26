@@ -6,6 +6,6 @@
   "architecture": "arm64",
   "minimumOS": "16.0",
   "unsigned": true,
-  "bytes": 4375025,
-  "sha256": "423174e0930de7a7bec9b2e7cdd2f2ebe1e925758f01f570d5b86e775854d624"
+  "bytes": 4375247,
+  "sha256": "efcd3cda03b62a19f893395edfc0010e507e9a7474e8cb930460d1f3adf83154"
 }

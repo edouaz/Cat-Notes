@@ -95,7 +95,7 @@ final class CanvasInteractionUITests: XCTestCase {
     func testStickyNoteDirectCreationCollapseUnfoldAndReopenEditorKeepsText() {
         let direct = app.buttons["Sticky note"]
         if direct.isHittable { direct.tap() }
-        else { app.buttons["editor.insert"].tap(); app.buttons["Sticky note"].tap() }
+        else { app.buttons["editor.insert"].tap(); app.buttons["editor.sticky.add"].tap() }
         let text = app.textViews["Sticky note text"]
         XCTAssertTrue(text.waitForExistence(timeout: 5)); text.tap(); text.typeText("Text preserved after collapse")
         app.buttons["Save"].tap()
