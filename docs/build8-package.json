@@ -1,0 +1,11 @@
+{
+  "file": "CatNotes-ios16-build8-unsigned.ipa",
+  "build": "8",
+  "version": "0.1.0",
+  "platform": "iPhoneOS",
+  "architecture": "arm64",
+  "minimumOS": "16.0",
+  "unsigned": true,
+  "bytes": 1072434,
+  "sha256": "989d3a1d6af6f331bbabdd7d564be3b91862d3d035ce060f05cf30460d67cb0c"
+}

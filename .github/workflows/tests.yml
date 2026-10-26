@@ -1,0 +1,27 @@
+name: iOS unit tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check generated project
+        run: |
+          python3 scripts/generate-project.py
+          git diff --exit-code -- CatNotes.xcodeproj
+      - name: Select an installed iPad simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(sys.stdin)["devices"].values() for d in ds if d["name"].startswith("iPad")))')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+      - name: Run unit tests
+        run: >-
+          xcodebuild -project CatNotes.xcodeproj -scheme CatNotes
+          -destination "platform=iOS Simulator,id=$DEVICE_ID"
+          -derivedDataPath build -only-testing:CatNotesTests
+          CODE_SIGNING_ALLOWED=NO test
