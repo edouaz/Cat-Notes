@@ -472,8 +472,9 @@ final class DesignInteractionTests: XCTestCase {
                     let x = (region.midX - app.frame.minX) / app.frame.width
                     let top = (region.minY + region.height * 0.2 - app.frame.minY) / app.frame.height
                     let bottom = (region.minY + region.height * 0.8 - app.frame.minY) / app.frame.height
-                    let start = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: towardTop ? top : bottom))
-                    let end = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: towardTop ? bottom : top))
+                    let towardBeginning = element.exists ? element.frame.midY < region.midY : towardTop
+                    let start = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: towardBeginning ? top : bottom))
+                    let end = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: towardBeginning ? bottom : top))
                     start.press(forDuration: 0.05, thenDragTo: end)
                     continue
                 }

@@ -88,6 +88,11 @@ final class PaginationInteractionTests: XCTestCase {
         swipe(-1, to: 3)
         swipe(1, to: 2)
         XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.canvas.frame.width > self.canvas.frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 5), .completed)
+        waitForZoom(above: 99, below: 102)
         swipe(1, to: 1)
         screenshot("Pagination after reopening, fit and landscape")
         let evidence = XCTAttachment(string: "20 real next/previous round trips, 4 visits to page 3, short drags at both notebook boundaries, cancellation, zoom/canvas pan, notebook close/reopen with the same session, app relaunch, fit and landscape. Simulator OS: \(UIDevice.current.systemVersion).")
