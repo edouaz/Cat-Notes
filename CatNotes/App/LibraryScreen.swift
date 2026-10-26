@@ -49,39 +49,7 @@ struct LibraryScreen: View {
                 if sidebarShown && sizeClass == .regular && !dynamicTypeSize.isAccessibilitySize {
                     librarySidebar
                 }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        ViewThatFits(in: .horizontal) {
-                            HStack { newNoteButton; importButton; folderButton }.fixedSize(horizontal: true, vertical: false)
-                            VStack(alignment: .leading, spacing: 12) { newNoteButton; importButton; folderButton }
-                        }.disabled(!store.ready)
-                        if filter == 0 && query.isEmpty { folderBreadcrumbs }
-                        ViewThatFits(in: .horizontal) {
-                            if !dynamicTypeSize.isAccessibilitySize {
-                            libraryControls.fixedSize(horizontal: true, vertical: false)
-                            }
-                            compactLibraryControls
-                        }
-                        if sizeClass != .regular || dynamicTypeSize.isAccessibilitySize {
-                            Picker("Documents", selection: $filter) {
-                                Text("Documents").tag(0); Text("Favoris").tag(1); Text("Corbeille").tag(2)
-                            }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("library.filter")
-                        }
-                        if !store.ready { ProgressView("Ouverture de la bibliothèque…") }
-                        else if notes.isEmpty && folders.isEmpty {
-                            VStack(spacing: 16) {
-                                Image(systemName: !query.isEmpty ? "magnifyingglass" : trash ? "trash" : "book.closed").font(.largeTitle).foregroundStyle(CatNotesStyle.accent).accessibilityHidden(true)
-                                Text(!query.isEmpty ? "Aucun résultat" : trash ? "La corbeille est vide" : favorites ? "Vos carnets préférés" : "Une page pour vos idées").font(.title2.weight(.semibold))
-                                Text(!query.isEmpty ? "Aucun carnet ne correspond à « \(query) »." : trash ? "Les carnets supprimés apparaîtront ici." : favorites ? "Ajoutez une étoile à un carnet pour le retrouver ici." : "Créez votre premier carnet ou importez un document pour commencer à écrire.").foregroundStyle(.secondary).multilineTextAlignment(.center)
-                                if !query.isEmpty { Button("Effacer la recherche") { query = "" }.frame(minHeight: 44) }
-                            }.frame(maxWidth: .infinity).padding(.vertical, 56)
-                        }
-                        LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 190), spacing: 24)], alignment: .leading, spacing: 24) {
-                            ForEach(folders) { folder in folderCard(folder) }
-                            ForEach(notes) { note in noteCard(note) }
-                        }
-                    }.padding(dynamicTypeSize.isAccessibilitySize || sizeClass != .regular ? 16 : 28)
-                }.frame(maxWidth: .infinity).background(Color(uiColor: .systemGroupedBackground))
+                libraryContent
             }
             .navigationTitle(trash ? "Corbeille" : favorites ? "Favoris" : selectedFolderID.flatMap { id in store.library.folders.first(where: { $0.id == id })?.name } ?? "Documents")
             .navigationBarTitleDisplayMode(.inline)
@@ -161,6 +129,36 @@ struct LibraryScreen: View {
             .sheet(isPresented: $diagnosticsShown) { DiagnosticsScreen() }
             .sheet(isPresented: $settings) { CloudScreen(store: store) }
         }
+    }
+    private var libraryContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                ViewThatFits(in: .horizontal) {
+                    HStack { newNoteButton; importButton; folderButton }.fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 12) { newNoteButton; importButton; folderButton }
+                }.disabled(!store.ready)
+                if filter == 0 && query.isEmpty { folderBreadcrumbs }
+                adaptiveLibraryControls
+                if sizeClass != .regular || dynamicTypeSize.isAccessibilitySize {
+                    Picker("Documents", selection: $filter) {
+                        Text("Documents").tag(0); Text("Favoris").tag(1); Text("Corbeille").tag(2)
+                    }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("library.filter")
+                }
+                if !store.ready { ProgressView("Ouverture de la bibliothèque…") }
+                else if notes.isEmpty && folders.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: !query.isEmpty ? "magnifyingglass" : trash ? "trash" : "book.closed").font(.largeTitle).foregroundStyle(CatNotesStyle.accent).accessibilityHidden(true)
+                        Text(!query.isEmpty ? "Aucun résultat" : trash ? "La corbeille est vide" : favorites ? "Vos carnets préférés" : "Une page pour vos idées").font(.title2.weight(.semibold))
+                        Text(!query.isEmpty ? "Aucun carnet ne correspond à « \(query) »." : trash ? "Les carnets supprimés apparaîtront ici." : favorites ? "Ajoutez une étoile à un carnet pour le retrouver ici." : "Créez votre premier carnet ou importez un document pour commencer à écrire.").foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        if !query.isEmpty { Button("Effacer la recherche") { query = "" }.frame(minHeight: 44) }
+                    }.frame(maxWidth: .infinity).padding(.vertical, 56)
+                }
+                LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 190), spacing: 24)], alignment: .leading, spacing: 24) {
+                    ForEach(folders) { folder in folderCard(folder) }
+                    ForEach(notes) { note in noteCard(note) }
+                }
+            }.padding(dynamicTypeSize.isAccessibilitySize || sizeClass != .regular ? 16 : 28)
+        }.frame(maxWidth: .infinity).background(Color(uiColor: .systemGroupedBackground))
     }
     private var librarySidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -284,6 +282,14 @@ struct LibraryScreen: View {
         }.padding(12).background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? CatNotesStyle.accent : Color(uiColor: .separator).opacity(0.3), lineWidth: selected ? 2 : 1) }
             .contextMenu { noteActions(note) }
+    }
+    private var adaptiveLibraryControls: some View {
+        ViewThatFits(in: .horizontal) {
+            if !dynamicTypeSize.isAccessibilitySize {
+                libraryControls.fixedSize(horizontal: true, vertical: false)
+            }
+            compactLibraryControls
+        }
     }
     private var compactLibraryControls: some View {
         VStack(alignment: .leading, spacing: 12) {
