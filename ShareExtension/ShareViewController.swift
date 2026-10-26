@@ -11,8 +11,8 @@ final class ShareViewController: UIViewController {
         message.numberOfLines = 0; message.textAlignment = .center
         message.font = .preferredFont(forTextStyle: .body); message.adjustsFontForContentSizeCategory = true
         let done = UIButton(type: .system)
-        done.setTitle("Terminé", for: .normal); done.addTarget(self, action: #selector(finish), for: .touchUpInside)
-        retry.setTitle("Réessayer", for: .normal); retry.addTarget(self, action: #selector(receive), for: .touchUpInside)
+        done.setTitle("Done", for: .normal); done.addTarget(self, action: #selector(finish), for: .touchUpInside)
+        retry.setTitle("Retry", for: .normal); retry.addTarget(self, action: #selector(receive), for: .touchUpInside)
         let stack = UIStackView(arrangedSubviews: [message, retry, done]); stack.axis = .vertical; stack.spacing = 24
         stack.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24), stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24), stack.centerYAnchor.constraint(equalTo: view.centerYAnchor), done.heightAnchor.constraint(greaterThanOrEqualToConstant: 44), retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)])
@@ -21,7 +21,7 @@ final class ShareViewController: UIViewController {
     private var completed: Set<Int> = []
     @objc private func receive() {
         guard !importing else { return }; importing = true; retry.isHidden = true
-        message.text = "Préparation de l’import…"
+        message.text = "Preparing import…"
         Task { @MainActor in
             defer { importing = false }
             do {
@@ -45,8 +45,8 @@ final class ShareViewController: UIViewController {
                     }
                     completed.insert(index)
                 }
-                message.text = "Prêt. Ouvrez CatNotes pour retrouver vos documents dans des onglets."
-            } catch { message.text = "Import impossible : \(error.localizedDescription)"; retry.isHidden = false }
+                message.text = "Ready. Open OpenNotes to find your documents in tabs."
+            } catch { message.text = "Import failed: \(error.localizedDescription)"; retry.isHidden = false }
         }
     }
     @objc private func finish() { guard !importing else { return }; extensionContext?.completeRequest(returningItems: nil) }

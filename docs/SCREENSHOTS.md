@@ -1,9 +1,11 @@
 # Screenshot provenance
 
-Images show the real Cat Notes interface, not generated mockups. All content is simulator test content.
+These images show real OpenNotes build 9 views, not generated UI mockups. All notebook content is synthetic test data.
 
-- `assets/editor.png`: build 8 compact toolbar, XCTest capture from 26 October 2026, iPad Pro 13-inch (M5), iOS 27.0.
-- `assets/pen-preview.png`: build 8 pen settings and actual-width preview, same capture session.
-- `assets/library.png`: build 8 library portrait, captured with simctl after the successful tests, 26 October 2026, same iPad simulator.
+- `assets/editor.png`: successful `CustomEditorExperienceTests/testCustomToolbarPreviewAndWidthSettingWithoutNativePalette`, iPad Pro 13-inch (M5), iOS 27.0, 2064 × 2752 pixels.
+- `assets/pen-preview.png`: instrument settings and stroke preview from the same successful UI test.
+- `assets/library.png`: successful `LibraryLayoutTests/testMixedLibraryVisualMatrix`, the app's actual SwiftUI library hosted at a 744 × 1133-point portrait window, rendered at 2× on the iPad simulator. It includes synthetic folders, notebook titles and dates.
 
-Earlier test evidence and planning drafts are preserved locally in `.local-archive/`, excluded from the public repository. The public repository keeps a curated set of screenshots to avoid hundreds of megabytes of repeated test attachments.
+App icon and mascot artwork are generated brand illustrations, not screenshots or evidence of app behavior. [Identity and icon exports](BRAND.md).
+
+Earlier test evidence and planning drafts remain in `.local-archive/`, excluded from the public repository. The public repository keeps a curated set of images instead of repeated test attachments.

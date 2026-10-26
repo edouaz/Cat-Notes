@@ -62,7 +62,7 @@ reset role;
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix='catnotes-pg-') as temp:
+    with tempfile.TemporaryDirectory(prefix='opennotes-pg-') as temp:
         root = Path(temp)
         data = root / 'data'
         subprocess.run(['initdb', '-D', str(data), '--auth=trust', '--no-locale', '-E', 'UTF8'], check=True, stdout=subprocess.DEVNULL)

@@ -1,6 +1,6 @@
-# Contributing to Cat Notes
+# Contributing to OpenNotes
 
-Start with the [developer guide](https://edouaz.github.io/Cat-Notes/develop.html) and [architecture](docs/ARCHITECTURE.md). The app is a prototype; small, focused fixes are welcome.
+Start with the [developer guide](https://edouaz.github.io/OpenNotes/develop.html) and [architecture](docs/ARCHITECTURE.md). The app is a prototype; small, focused fixes are welcome.
 
 1. Open an issue describing the problem, device, iOS version and steps to reproduce. Use synthetic notes and remove personal information from screenshots.
 2. Fork the repository and create a branch for one change.

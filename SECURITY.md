@@ -1,6 +1,6 @@
 # Security
 
-Cat Notes is an experimental prototype. Export backups before testing with valuable notes.
+OpenNotes is an experimental prototype. Export backups before testing with valuable notes.
 
 Report a suspected vulnerability privately through the repository’s GitHub **Security → Report a vulnerability** option. If private reporting is unavailable, open an issue requesting a private contact without including exploit details, credentials or personal data.
 

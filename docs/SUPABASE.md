@@ -1,36 +1,40 @@
-# Supabase — configuration et validation
+# Supabase — configuration and validation
 
-Le cloud n’a pas été testé contre un service : aucun projet, compte ni identifiant n’a été fourni. Le mode local fonctionne sans cette configuration.
+The cloud integration has not been tested against a live service. No development project, accounts or credentials were available for that validation. Local notebooks work without this configuration.
 
-1. Créer un projet de développement Supabase. Activer l’authentification e-mail/mot de passe et définir la confirmation d’e-mail selon le besoin.
-2. Appliquer `supabase/migrations/202610210001_notebooks.sql` via l’éditeur SQL ou Supabase CLI. Ne pas appliquer deux fois cette migration non idempotente.
-3. Copier `Config/Supabase.example.plist` vers `Config/Supabase.plist` (ignoré par Git). Renseigner l’URL HTTPS et **uniquement une clé publishable**, ou une ancienne clé JWT de rôle `anon`. Le chargeur refuse les clés secrètes et les JWT de rôle privilégié.
-4. Exécuter `python3 scripts/generate-project.py` pour embarquer la configuration et reconstruire l’app.
-5. Dans Compte et cloud : créer/confirmer un compte, se connecter puis associer explicitement la bibliothèque. Une bibliothèque locale est liée à un seul compte pour éviter d’envoyer les documents d’A à B après changement de session.
+## Development setup
 
-Les tokens de session sont dans le Trousseau, accessibles après premier déverrouillage sur cet appareil uniquement. Ni mot de passe ni token ne sont journalisés. La déconnexion supprime la session locale. Elle ne supprime pas les carnets.
+1. Create a development Supabase project. Enable email/password authentication and configure email confirmation as appropriate.
+2. Apply `supabase/migrations/202610210001_notebooks.sql` using the SQL editor or Supabase CLI. The migration is not idempotent; do not apply it twice.
+3. Copy `Config/Supabase.example.plist` to `Config/Supabase.plist` (ignored by Git). Set the HTTPS project URL and **only a publishable key**, or a legacy JWT with the `anon` role. The configuration loader rejects secret keys and privileged-role JWTs.
+4. Run `python3 scripts/generate-project.py` to include the local configuration, then rebuild the app.
+5. In the account and cloud screen, create/confirm an account, sign in and explicitly link the library. A local library is linked to one account to avoid uploading one person's documents to another account after switching sessions.
 
-## Données et reprise
+Session tokens are stored in the device-only Keychain and become accessible after the first device unlock. Passwords and tokens are not logged. Signing out clears the local session; it does not delete notebooks. The existing Keychain service identifier is retained across the OpenNotes rename so updates can access the previous session.
 
-- Bucket `notebooks` privé, fichiers natifs incluant dessins et PDF source. Limite de fichier initiale : 150 Mio ; l’import local est plafonné à 150 Mo.
-- Postgres contient des identifiants de carnet/révision/parent, SHA-256, chemins et dates. Aucun binaire.
-- Une révision et son objet Storage sont immuables. Aucune policy UPDATE/DELETE n’est ouverte. Seul le propriétaire peut lire/insérer ses données.
-- Les métadonnées locales sauvegardées sont la source de la file d’envoi : date modifiée puis checksum comparés à l’état de synchronisation conservé localement. Analyse toutes les 30 secondes **au premier plan**, reprise au prochain passage/relancement. L’écriture n’attend jamais le réseau. Ce n’est pas un service de transfert garanti lorsque l’app est suspendue par iOS.
-- L’objet est écrit avant la ligne de révision. Une interruption entre les deux peut laisser un objet orphelin ; une maintenance serveur sera nécessaire avant production.
-- Toute révision distante inconnue est importée avec de nouveaux identifiants locaux, sans remplacement d’un carnet. En cas de divergence, les deux notes subsistent et la version distante est nommée comme telle. La fusion et le regroupement d’un historique distant en une seule note restent à faire : ce protocole conservateur produit des copies lors des mises à jour provenant d’un autre appareil.
-- L’import d’un carnet est publié uniquement après l’écriture de toutes ses ressources. Une mutation concurrente locale annule la publication et conserve les données locales. Des ressources orphelines peuvent subsister sans être visibles.
+## Data and recovery
 
-**Ce cloud est un prototype sûr contre l’écrasement, pas une synchronisation P1 validée.** Il faut encore automatiser les coupures/réessais, limiter les copies de révisions, tester le renouvellement de session, les conflits multidispositifs et la pagination contre un vrai service. L’état de suivi utilise UserDefaults et n’est pas une transaction avec la bibliothèque : un arrêt brutal peut produire une copie supplémentaire, pas remplacer l’original.
+- The private `notebooks` bucket stores native documents, including drawings and source PDFs. The initial storage object limit is 150 MiB; local imports are limited to 150 MB.
+- Postgres stores notebook, revision and parent identifiers, SHA-256 values, object paths and timestamps. It does not store binary document data.
+- Revisions and their Storage objects are immutable. No UPDATE/DELETE policy is enabled. Only the owner can read or insert their data.
+- Saved local metadata provides the upload queue: the modified date and then checksum are compared with the locally retained sync state. The client checks every 30 seconds **while in the foreground**, and resumes on the next foreground transition or launch. Writing never waits for the network. Background transfer while iOS suspends the app is not guaranteed.
+- The object is uploaded before the revision row. An interruption between these operations can leave an orphaned object; server maintenance is needed before production use.
+- An unknown remote revision is imported with new local identifiers, without replacing a notebook. When versions diverge, both remain, and the remote copy is named accordingly. Merging and grouping a remote revision history into one notebook are still unfinished; this conservative protocol creates copies of updates from another device.
+- An imported notebook becomes visible only after all its resources have been written. A concurrent local mutation cancels publication and preserves local data. Orphaned resources can remain on disk without appearing in the library.
 
-## Validation SQL locale exécutée
+**This is an experimental, non-overwriting cloud prototype, not validated production synchronization.** Interrupted transfers, retries, revision deduplication, session renewal, multiple-device conflicts and pagination still need automated tests against a real service. Tracking state uses UserDefaults and is not transactional with the library: a sudden stop may create an extra copy instead of replacing the original.
 
-`python3 scripts/test-rls-local.py` a réussi sur PostgreSQL16.14 dans un cluster jetable, socket Unix sans écoute réseau, supprimé ensuite. Il applique la vraie migration et vérifie dans les deux sens propriétaire/A/B : SELECT/INSERT autorisés au propriétaire, invisibilité et refus d’insertion intercompte, métadonnées immuables, fichiers immuables, accès anonyme refusé. Les schémas/fonctions `auth` et `storage` sont des stubs minimaux ; ce test ne vérifie pas Supabase Auth, l’API HTTP Storage, les limites du service ou les policies préexistantes d’un projet réel.
+## Previously executed local SQL validation
 
-## Test d’isolation à deux comptes sur Supabase
+`python3 scripts/test-rls-local.py` previously passed on PostgreSQL 16.14 in a disposable cluster using a Unix socket, without a network listener; the cluster was removed afterward. The script applies the real migration and checks owner/A/B access in both directions: owner SELECT/INSERT, cross-account invisibility and insert rejection, immutable metadata and files, and rejection of anonymous access.
 
-Sur un projet **jetable**, créer/confirmer deux utilisateurs distincts. Définir dans l’environnement :
+The `auth` and `storage` schemas/functions are minimal stubs. This does not test Supabase Auth, the Storage HTTP API, service limits or policies already present in a real project.
 
-```
+## Two-account isolation test against Supabase
+
+Use a **disposable** project and create/confirm two different users. Set these environment variables:
+
+```text
 SUPABASE_URL
 SUPABASE_PUBLISHABLE_KEY
 TEST_A_EMAIL
@@ -39,8 +43,8 @@ TEST_B_EMAIL
 TEST_B_PASSWORD
 ```
 
-Exécuter `python3 scripts/check-rls.py`. Le script ne journalise pas les secrets. Il vérifie dans les deux sens : upload/lecture propriétaire, invisibilité des métadonnées de l’autre, refus de téléchargement de son binaire, refus des modifications et de l’usurpation d’owner. Il laisse volontairement des fixtures immuables dans le projet jetable. Ces assertions HTTP n’ont pas été exécutées faute de comptes.
+Run `python3 scripts/check-rls.py`. The script does not log secrets. It checks owner upload/read in both directions, invisibility of the other user's metadata, rejection of downloads of the other user's binary data, rejection of updates and owner impersonation. It deliberately leaves immutable fixtures in the disposable project. These HTTP assertions have not been run because test accounts were not available.
 
-Les policies doivent être auditées avec celles déjà présentes sur un projet existant : des policies permissives supplémentaires pourraient élargir l’accès. L’accès anonyme doit aussi être vérifié après déploiement.
+Review the policies alongside any already present in an existing project: additional permissive policies can widen access. Verify anonymous access after deployment as well.
 
-Références consultées le 21 octobre 2026 : [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [Storage Swift](https://supabase.com/docs/reference/swift/storage-from-upload). Vérifier [les quotas et tarifs](https://supabase.com/pricing) avant lancement ; aucune gratuité à l’échelle n’est supposée.
+References originally consulted on 21 October 2026: [row-level security](https://supabase.com/docs/guides/database/postgres/row-level-security), [Storage upload](https://supabase.com/docs/reference/swift/storage-from-upload). Check [current quotas and pricing](https://supabase.com/pricing) before operating a live service; no assumption of free service at scale is made.

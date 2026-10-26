@@ -1,0 +1,11 @@
+{
+  "file": "OpenNotes-ios16-build9-unsigned.ipa",
+  "build": "9",
+  "version": "0.1.0",
+  "platform": "iphoneos",
+  "architecture": "arm64",
+  "minimumOS": "16.0",
+  "unsigned": true,
+  "bytes": 4375025,
+  "sha256": "423174e0930de7a7bec9b2e7cdd2f2ebe1e925758f01f570d5b86e775854d624"
+}

@@ -14,14 +14,14 @@ jobs:
       - name: Check generated project
         run: |
           python3 scripts/generate-project.py
-          git diff --exit-code -- CatNotes.xcodeproj
+          git diff --exit-code -- OpenNotes.xcodeproj
       - name: Select an installed iPad simulator
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(sys.stdin)["devices"].values() for d in ds if d["name"].startswith("iPad")))')
           echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
       - name: Run unit tests
         run: >-
-          xcodebuild -project CatNotes.xcodeproj -scheme CatNotes
+          xcodebuild -project OpenNotes.xcodeproj -scheme OpenNotes
           -destination "platform=iOS Simulator,id=$DEVICE_ID"
-          -derivedDataPath build -only-testing:CatNotesTests
+          -derivedDataPath build -only-testing:OpenNotesTests
           CODE_SIGNING_ALLOWED=NO test

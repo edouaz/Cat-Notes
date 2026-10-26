@@ -42,7 +42,7 @@ def main():
         other = users[1-index][1]
         note, revision = str(uuid.uuid4()), str(uuid.uuid4())
         path = f'{owner}/{note}/{revision}.catnote'
-        binary = b'CatNotes RLS isolation fixture, not a valid notebook'
+        binary = b'OpenNotes RLS isolation fixture, not a valid notebook'
         status, _ = request(base, key, 'storage/v1/object/notebooks/' + path, token, 'POST', binary, True)
         assert status in (200, 201), f'Own upload: HTTP {status}'
         row = {'id': revision, 'owner_id': owner, 'notebook_id': note, 'parent_id': None,

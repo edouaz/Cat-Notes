@@ -1,10 +1,133 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cat Notes — A little space for big ideas</title><meta name="description" content="A native, open-source notebook for iPad and iPhone. Explore the early Cat Notes prototype, download the IPA, or build it yourself."><meta name="theme-color" content="#f7f5ee"><link rel="stylesheet" href="style.css"><link rel="icon" href="favicon.svg" type="image/svg+xml"></head>
-<body><a class="skip" href="#main">Skip to content</a><header><a class="brand" href="./"><span class="mark" aria-hidden="true">c.</span>Cat Notes</a><nav aria-label="Main navigation"><a href="#explore">Explore</a><a href="develop.html">Documentation</a><a href="https://github.com/edouaz/Cat-Notes">GitHub ↗</a></nav></header>
-<main id="main"><section class="hero"><div><span class="status">An open-source work in progress</span><h1>A little space<br>for <em>big ideas.</em></h1><p class="intro">Your handwriting. Your PDFs. Your own quiet corner on iPad and iPhone.</p><p class="intro">Meet Cat Notes, a native notebook taking its first steps. Built for the feeling of putting pen to paper.</p><div class="buttons"><a class="button primary" href="https://github.com/edouaz/Cat-Notes/releases/download/v0.1.0-prototype.8/CatNotes-ios16-build8-unsigned.ipa">Get the prototype <span aria-hidden="true">↓</span></a><a class="button" href="develop.html#install">How to install</a></div><p class="fine">Build 8 · iOS 16+ · Unsigned IPA — signing required</p></div><div><div class="device"><img src="assets/editor.png" width="2064" height="2752" alt="Cat Notes on iPad: a compact handwriting toolbar above a clean squared page"></div><p class="caption">THE REAL APP, CAPTURED ON IPAD SIMULATOR · BUILD 8</p></div></section>
-<div class="strip"><span>Native SwiftUI</span><span>Powered by PencilKit</span><span>Local notebooks</span><span>No account needed</span><span>MIT licensed</span></div>
-<section class="section" id="explore"><span class="eyebrow">01 / A notebook, at your pace</span><div class="split"><h2>From a passing thought<br>to a page worth keeping.</h2><div><article class="feature"><span>WRITE</span><h3>Make your mark.</h3><p>Pen, pencil, highlighter and a custom instrument bar. Find your color, set your width and see how your next stroke will look.</p></article><article class="feature"><span>COLLECT</span><h3>Keep things together.</h3><p>Organize notebooks in folders, mark favorites and move between open tabs. Bring PDFs, images and text onto the page.</p></article><article class="feature"><span>TAKE WITH YOU</span><h3>Your notes have a way out.</h3><p>Export a PDF to share, or a native .catnote backup to keep editing. Local storage works without an account.</p></article></div></div><div class="gallery"><figure><div class="device"><img loading="lazy" src="assets/library.png" alt="Cat Notes notebook library with folders and notebook cards"></div><figcaption>01 — A home for your notebooks. Library capture from build 8.</figcaption></figure><figure><div class="device"><img loading="lazy" src="assets/pen-preview.png" alt="Instrument controls showing a pen stroke preview, style, color and width"></div><figcaption>02 — A closer look at your pen. Instrument preview in build 8.</figcaption></figure></div></section>
-<section class="section split" id="prototype"><div><span class="eyebrow">02 / Early, and out in the open</span><h2>A prototype.<br>With room to grow.</h2><p>Cat Notes is far from a final release. Sharing it now means you can explore what exists, see how it works and help shape what comes next.</p><a href="https://github.com/edouaz/Cat-Notes/blob/main/docs/RELEASE.md">Read the build 8 release notes ↗</a></div><aside class="callout"><h3>A few honest notes.</h3><p>The IPA needs signing before installation. Physical Apple Pencil performance, older iPads and accessibility still need real-world validation.</p><p>Cloud sync is experimental. Export backups, and keep another copy of important notes.</p></aside></section>
-<section class="section"><span class="eyebrow">03 / Make it your own</span><div class="split"><div><h2>Open the project.<br>Turn the next page.</h2><p>System frameworks. A checked-in Xcode project. No package installation or backend required for local use.</p><a class="button primary" href="develop.html">Start developing <span aria-hidden="true">↗</span></a></div><div class="steps"><article class="step"><h3>Get the source</h3><p>Clone the public repository and open CatNotes.xcodeproj.</p></article><article class="step"><h3>Choose a simulator</h3><p>Select the CatNotes scheme and an installed iPad or iPhone simulator. Press Run.</p></article><article class="step"><h3>Make one useful change</h3><p>Follow the contributor guide, run the affected tests and share a focused pull request.</p></article></div></div></section>
-<section class="bottom"><span class="eyebrow">A small project. An open invitation.</span><h2>There’s a lot left to write.</h2><div class="buttons"><a class="button primary" href="https://github.com/edouaz/Cat-Notes">Explore the source <span aria-hidden="true">↗</span></a><a class="button" href="https://github.com/edouaz/Cat-Notes/issues">Share feedback</a></div></section></main>
-<footer><span>Cat Notes · 2026 · MIT license</span><span>Built with Apple frameworks. Portions derived from <a href="https://github.com/edouaz/Cat-Notes/blob/main/THIRD_PARTY_NOTICES.md">Signotes</a>.</span><a href="develop.html">Installation & documentation</a></footer></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OpenNotes — A friendly place for your ideas</title>
+  <meta name="description" content="A native, open-source notebook for iPad and iPhone. Write, annotate PDFs and keep your notebooks on your device. Explore the OpenNotes prototype.">
+  <meta name="theme-color" content="#245fe8">
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="assets/icon-light.png" type="image/png">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header>
+    <a class="brand" href="./"><img src="assets/icon-light.png" width="42" height="42" alt="">OpenNotes</a>
+    <nav aria-label="Main navigation">
+      <a href="#explore">Explore</a>
+      <a href="develop.html">Documentation</a>
+      <a href="https://github.com/edouaz/OpenNotes">GitHub</a>
+    </nav>
+    <label class="appearance">
+      <span class="visually-hidden">Appearance</span>
+      <select id="appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    </label>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div>
+        <span class="status">Open source. Still growing.</span>
+        <h1>A friendly place<br>for <span>your ideas.</span></h1>
+        <p class="intro">Write a little. Think a lot. Keep your handwriting, PDFs and everyday notes together on iPad and iPhone.</p>
+        <p>Meet OpenNotes: a native notebook, with a small smile and plenty of room to make it your own.</p>
+        <div class="buttons">
+          <a class="button primary" href="https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.9/OpenNotes-ios16-build9-unsigned.ipa">Get the prototype</a>
+          <a class="button" href="develop.html#install">How to install</a>
+        </div>
+        <p class="fine">Build 9 · iOS 16+ · Unsigned IPA — signing required</p>
+      </div>
+      <div class="hero-visual">
+        <div class="screenshot-shell">
+          <img src="assets/editor.png" width="2064" height="2752" alt="OpenNotes on iPad with its custom drawing toolbar and squared notebook paper">
+        </div>
+        <div class="mascot-note">
+          <img src="assets/mascot.png" width="62" height="62" alt="">
+          <p>A little notebook.<br>A lot of possibilities.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="strip">
+      <span>Native SwiftUI</span><span>Powered by PencilKit</span><span>Local notebooks</span><span>No account needed</span><span>MIT licensed</span>
+    </div>
+
+    <section class="section" id="explore">
+      <span class="eyebrow">Make room for a thought</span>
+      <div class="section-heading">
+        <h2>From the first scribble<br>to the next good idea.</h2>
+        <p>A few useful tools, close at hand. Bring a document, start a fresh page, or pick up where you left off.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature">
+          <span class="number">01 / WRITE</span>
+          <h3>A pen that feels like yours.</h3>
+          <p>Pen, pencil, highlighter, eraser and lasso. Choose a color and width, and see a real stroke preview before you start.</p>
+        </article>
+        <article class="feature">
+          <span class="number">02 / COLLECT</span>
+          <h3>Keep the little things together.</h3>
+          <p>Folders, favorites and open notebook tabs. Add PDFs, images, text and sticky notes to your pages.</p>
+        </article>
+        <article class="feature feature-wide">
+          <img src="assets/mascot.png" width="85" height="85" alt="" loading="lazy">
+          <div>
+            <span class="number">03 / KEEP</span>
+            <h3>Your notes, on your device.</h3>
+            <p>Start without an account. Export a PDF to share, or a native .catnote backup to keep editing. Your notebooks have a way out.</p>
+          </div>
+        </article>
+      </div>
+      <div class="gallery">
+        <figure>
+          <div class="screenshot-shell"><img loading="lazy" src="assets/library.png" alt="OpenNotes notebook library with notebook cards and navigation"></div>
+          <figcaption><strong>A home for your notebooks.</strong>Real iPad simulator capture, build 9.</figcaption>
+        </figure>
+        <figure>
+          <div class="screenshot-shell"><img loading="lazy" src="assets/pen-preview.png" alt="OpenNotes pen settings with a stroke preview, style, color and width controls"></div>
+          <figcaption><strong>Find your favorite pen.</strong>Real instrument preview, build 9.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section split" id="prototype">
+      <div>
+        <span class="eyebrow">Small steps, out in the open</span>
+        <h2>A prototype.<br>With room to grow.</h2>
+        <p>OpenNotes is far from a final release. We are sharing it early so you can explore the app, understand the code and help decide what comes next.</p>
+        <a href="https://github.com/edouaz/OpenNotes/blob/main/docs/RELEASE.md">Read the build 9 release notes</a>
+      </div>
+      <aside class="callout">
+        <h3>A few honest notes.</h3>
+        <p>The IPA needs signing before installation. Physical Apple Pencil performance, older iPads and accessibility still need real-world validation.</p>
+        <p>Cloud sync is experimental. Export backups, and keep another copy of important notes.</p>
+      </aside>
+    </section>
+
+    <section class="section split">
+      <div>
+        <span class="eyebrow">An open invitation</span>
+        <h2>Open the project.<br>Make the next page.</h2>
+        <p>System frameworks. A checked-in Xcode project. No package installation or backend required for local use.</p>
+        <a class="button primary" href="develop.html#development">Start developing</a>
+      </div>
+      <div class="steps">
+        <article class="step"><h3>Get the source</h3><p>Clone the repository and open OpenNotes.xcodeproj.</p></article>
+        <article class="step"><h3>Choose a simulator</h3><p>Select the OpenNotes scheme and an installed iPad or iPhone simulator. Press Run.</p></article>
+        <article class="step"><h3>Make one useful change</h3><p>Follow the contributor guide, run the affected tests and share a focused pull request.</p></article>
+      </div>
+    </section>
+
+    <section class="bottom">
+      <div><span class="eyebrow">A notebook we can build together</span><h2>There is a lot left to write.</h2></div>
+      <div class="buttons"><a class="button primary" href="https://github.com/edouaz/OpenNotes">Explore the source</a><a class="button" href="https://github.com/edouaz/OpenNotes/issues">Share feedback</a></div>
+    </section>
+  </main>
+  <footer>
+    <span>OpenNotes · 2026 · MIT license</span>
+    <span>Built with Apple frameworks. Portions derived from <a href="https://github.com/edouaz/OpenNotes/blob/main/THIRD_PARTY_NOTICES.md">Signotes</a>.</span>
+    <a href="develop.html">Installation & documentation</a>
+  </footer>
+</body>
+</html>
