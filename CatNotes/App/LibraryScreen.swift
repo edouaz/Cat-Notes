@@ -45,90 +45,99 @@ struct LibraryScreen: View {
     }
     var body: some View {
         NavigationStack(path: $path) {
-            HStack(spacing: 0) {
-                if sidebarShown && sizeClass == .regular && !dynamicTypeSize.isAccessibilitySize {
-                    librarySidebar
-                }
-                libraryContent
-            }
-            .navigationTitle(trash ? "Corbeille" : favorites ? "Favoris" : selectedFolderID.flatMap { id in store.library.folders.first(where: { $0.id == id })?.name } ?? "Documents")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Titres et texte des documents")
-            .onChange(of: filter) { value in if value != 0 { selectedFolderID = nil }; resetSelection() }
-            .onChange(of: selectedFolderID) { _ in resetSelection() }
-            .onChange(of: query) { _ in resetSelection() }
-            .onChange(of: notes.map(\.id)) { visible in selectedDocuments.formIntersection(visible) }
-            .task(id: query) {
-                guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
-                for note in store.library.notes where note.deletedAt == nil {
-                    guard !Task.isCancelled else { return }
-                    await store.indexPDFText(in: note.id)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button { diagnosticsShown = true } label: { Label("Diagnostic", systemImage: "ladybug") } }
-                if sizeClass == .regular && !dynamicTypeSize.isAccessibilitySize { ToolbarItem(placement: .navigationBarLeading) { Button { sidebarShown.toggle() } label: { Label("Panneau latéral", systemImage: "sidebar.left") } } } }
-            .navigationDestination(for: UUID.self) { id in
-                if let workspace { NotebookWorkspaceView(workspace: workspace) }
-            }
-            .task {
-                if !store.ready { await store.load() }
-                guard store.ready else { return }
-                if workspace == nil {
-                    let model = NotebookWorkspace(store: store)
-                    workspace = model
-                    await model.restore()
-                    if let id = model.active { path = [id] }
-                }
-                await consumeInbox()
-            }
-            .onChange(of: scenePhase) { phase in if phase == .active { Task { await consumeInbox() } } }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in Task { await store.disk.clearThumbnails() } }
-            .onOpenURL { url in Task { if let id = await store.importFile(url, folderID: currentFolderID) { openNotebook(id) } } }
-            .fileImporter(isPresented: $importer, allowedContentTypes: [.pdf, .image, UTType(filenameExtension: "catnote") ?? .data]) { result in
-                Task {
-                    do { if let id = await store.importFile(try result.get(), folderID: currentFolderID) { openNotebook(id) } }
-                    catch { store.error = error.localizedDescription }
-                }
-            }
-            .alert("Renommer le carnet", isPresented: Binding(get: { rename != nil }, set: { if !$0 { rename = nil } })) {
-                TextField("Titre", text: $title)
-                Button("Enregistrer") {
-                    if let note = rename { store.update(note.id) { $0.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Sans titre" : title } }; rename = nil
-                }
-                Button("Annuler", role: .cancel) { rename = nil }
-            }
-            .confirmationDialog("Placer ce carnet dans la corbeille ?", isPresented: Binding(get: { deletion != nil }, set: { if !$0 { deletion = nil } }), titleVisibility: .visible) {
-                Button("Placer dans la corbeille", role: .destructive) { if let note = deletion { store.update(note.id) { $0.deletedAt = Date() } }; deletion = nil }
-            } message: { Text("Vous pourrez le récupérer depuis la bibliothèque.") }
-            .alert("CatNotes", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
-                Button("OK") { store.error = nil }
-                if let failedSharedImport {
-                    Button("Réessayer l’import") { Task { await consumeInbox() } }
-                    Button("Retirer cet import", role: .destructive) {
-                        do { try ShareInbox.remove(failedSharedImport); self.failedSharedImport = nil; Task { await consumeInbox() } }
-                        catch { store.error = error.localizedDescription }
-                    }
-                }
-                if !store.ready { Button("Restaurer la copie de secours") { Task { await store.restore() } } }
-            } message: { Text(store.error ?? "") }
-            .sheet(isPresented: $folderEditorShown) {
-                FolderNameSheet(name: renamedFolder?.name ?? "", title: renamedFolder == nil ? "Nouveau dossier" : "Renommer le dossier") { name in
-                    let action = LibraryAction(kind: renamedFolder == nil ? .createFolder : .renameFolder, folderID: renamedFolder?.id, parentID: currentFolderID, name: name)
-                    return store.apply(action) != nil
-                }
-            }
-            .sheet(isPresented: $moveShown) {
-                FolderPickerSheet(store: store, movingFolderID: movingFolder) { destination in
-                    if let movingFolder { store.apply(.init(kind: .moveFolder, folderID: movingFolder, parentID: destination)) }
-                    else { store.apply(.init(kind: .moveDocuments, folderID: destination, documentIDs: movingDocuments)) }
-                    selectedDocuments = []; selectingDocuments = false
-                }
-            }
-            .sheet(isPresented: $diagnosticsShown) { DiagnosticsScreen() }
-            .sheet(isPresented: $settings) { CloudScreen(store: store) }
+            presentedLibrary
         }
+    }
+    private var navigationContent: some View {
+    HStack(spacing: 0) {
+        if sidebarShown && sizeClass == .regular && !dynamicTypeSize.isAccessibilitySize {
+            librarySidebar
+        }
+        libraryContent
+    }
+    .navigationTitle(trash ? "Corbeille" : favorites ? "Favoris" : selectedFolderID.flatMap { id in store.library.folders.first(where: { $0.id == id })?.name } ?? "Documents")
+    .navigationBarTitleDisplayMode(.inline)
+    .searchable(text: $query, prompt: "Titres et texte des documents")
+    .onChange(of: filter) { value in if value != 0 { selectedFolderID = nil }; resetSelection() }
+    .onChange(of: selectedFolderID) { _ in resetSelection() }
+    .onChange(of: query) { _ in resetSelection() }
+    .onChange(of: notes.map(\.id)) { visible in selectedDocuments.formIntersection(visible) }
+    .task(id: query) {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+        for note in store.library.notes where note.deletedAt == nil {
+            guard !Task.isCancelled else { return }
+            await store.indexPDFText(in: note.id)
+        }
+    }
+    .toolbar {
+        ToolbarItem(placement: .navigationBarTrailing) { Button { diagnosticsShown = true } label: { Label("Diagnostic", systemImage: "ladybug") } }
+        if sizeClass == .regular && !dynamicTypeSize.isAccessibilitySize { ToolbarItem(placement: .navigationBarLeading) { Button { sidebarShown.toggle() } label: { Label("Panneau latéral", systemImage: "sidebar.left") } } } }
+    .navigationDestination(for: UUID.self) { id in
+        if let workspace { NotebookWorkspaceView(workspace: workspace) }
+    }
+    }
+    private var activeLibrary: some View {
+        navigationContent
+    .task {
+        if !store.ready { await store.load() }
+        guard store.ready else { return }
+        if workspace == nil {
+            let model = NotebookWorkspace(store: store)
+            workspace = model
+            await model.restore()
+            if let id = model.active { path = [id] }
+        }
+        await consumeInbox()
+    }
+    .onChange(of: scenePhase) { phase in if phase == .active { Task { await consumeInbox() } } }
+    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in Task { await store.disk.clearThumbnails() } }
+    .onOpenURL { url in Task { if let id = await store.importFile(url, folderID: currentFolderID) { openNotebook(id) } } }
+    .fileImporter(isPresented: $importer, allowedContentTypes: [.pdf, .image, UTType(filenameExtension: "catnote") ?? .data]) { result in
+        Task {
+            do { if let id = await store.importFile(try result.get(), folderID: currentFolderID) { openNotebook(id) } }
+            catch { store.error = error.localizedDescription }
+        }
+    }
+    }
+    private var presentedLibrary: some View {
+        activeLibrary
+    .alert("Renommer le carnet", isPresented: Binding(get: { rename != nil }, set: { if !$0 { rename = nil } })) {
+        TextField("Titre", text: $title)
+        Button("Enregistrer") {
+            if let note = rename { store.update(note.id) { $0.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Sans titre" : title } }; rename = nil
+        }
+        Button("Annuler", role: .cancel) { rename = nil }
+    }
+    .confirmationDialog("Placer ce carnet dans la corbeille ?", isPresented: Binding(get: { deletion != nil }, set: { if !$0 { deletion = nil } }), titleVisibility: .visible) {
+        Button("Placer dans la corbeille", role: .destructive) { if let note = deletion { store.update(note.id) { $0.deletedAt = Date() } }; deletion = nil }
+    } message: { Text("Vous pourrez le récupérer depuis la bibliothèque.") }
+    .alert("CatNotes", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+        Button("OK") { store.error = nil }
+        if let failedSharedImport {
+            Button("Réessayer l’import") { Task { await consumeInbox() } }
+            Button("Retirer cet import", role: .destructive) {
+                do { try ShareInbox.remove(failedSharedImport); self.failedSharedImport = nil; Task { await consumeInbox() } }
+                catch { store.error = error.localizedDescription }
+            }
+        }
+        if !store.ready { Button("Restaurer la copie de secours") { Task { await store.restore() } } }
+    } message: { Text(store.error ?? "") }
+    .sheet(isPresented: $folderEditorShown) {
+        FolderNameSheet(name: renamedFolder?.name ?? "", title: renamedFolder == nil ? "Nouveau dossier" : "Renommer le dossier") { name in
+            let action = LibraryAction(kind: renamedFolder == nil ? .createFolder : .renameFolder, folderID: renamedFolder?.id, parentID: currentFolderID, name: name)
+            return store.apply(action) != nil
+        }
+    }
+    .sheet(isPresented: $moveShown) {
+        FolderPickerSheet(store: store, movingFolderID: movingFolder) { destination in
+            if let movingFolder { store.apply(.init(kind: .moveFolder, folderID: movingFolder, parentID: destination)) }
+            else { store.apply(.init(kind: .moveDocuments, folderID: destination, documentIDs: movingDocuments)) }
+            selectedDocuments = []; selectingDocuments = false
+        }
+    }
+    .sheet(isPresented: $diagnosticsShown) { DiagnosticsScreen() }
+    .sheet(isPresented: $settings) { CloudScreen(store: store) }
     }
     private var libraryContent: some View {
         ScrollView {
