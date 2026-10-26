@@ -1,6 +1,6 @@
 # 0.1.0 — prototype build 8
 
-**Early public prototype, far from a final release.** iPhone/iPad, iOS/iPadOS 16+. Published from the existing build of 26 October 2026; publication cleanup changes documentation and repository setup, not app code.
+**Early public prototype, far from a final release.** iPhone/iPad, iOS/iPadOS 16+. Published from the existing build of 26 October 2026; the public source also extracts the compact library controls into a separate SwiftUI property for compiler compatibility, without changing behavior. The IPA remains the original build 8.
 
 [Download the unsigned IPA](https://github.com/edouaz/Cat-Notes/releases/download/v0.1.0-prototype.8/CatNotes-ios16-build8-unsigned.ipa) · [Installation](https://edouaz.github.io/Cat-Notes/develop.html#install)
 

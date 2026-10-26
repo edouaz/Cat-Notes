@@ -60,10 +60,7 @@ struct LibraryScreen: View {
                             if !dynamicTypeSize.isAccessibilitySize {
                             libraryControls.fixedSize(horizontal: true, vertical: false)
                             }
-                            VStack(alignment: .leading, spacing: 12) {
-                                Picker("Trier", selection: $sort) { Text("Date").tag("date"); Text("Nom").tag("name") }.pickerStyle(.menu)
-                                selectionControls
-                            }
+                            compactLibraryControls
                         }
                         if sizeClass != .regular || dynamicTypeSize.isAccessibilitySize {
                             Picker("Documents", selection: $filter) {
@@ -287,6 +284,15 @@ struct LibraryScreen: View {
         }.padding(12).background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? CatNotesStyle.accent : Color(uiColor: .separator).opacity(0.3), lineWidth: selected ? 2 : 1) }
             .contextMenu { noteActions(note) }
+    }
+    private var compactLibraryControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Trier", selection: $sort) {
+                Text("Date").tag("date")
+                Text("Nom").tag("name")
+            }.pickerStyle(.menu)
+            selectionControls
+        }
     }
     private var libraryControls: some View {
         HStack(spacing: 16) {

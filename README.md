@@ -21,9 +21,9 @@ A native notebook for iPad and iPhone, built with SwiftUI, PencilKit and PDFKit.
 
 | Your library | Tune your pen |
 | --- | --- |
-| ![Notebook library, build 7](docs/assets/library.png) | ![Pen preview, build 8](docs/assets/pen-preview.png) |
+| ![Notebook library, build 8](docs/assets/library.png) | ![Pen preview, build 8](docs/assets/pen-preview.png) |
 
-Screenshots are real simulator captures. The library image comes from build 7; editor and instrument images show build 8. [Capture provenance](docs/SCREENSHOTS.md).
+Screenshots are real simulator captures. All images show build 8, captured on 26 October 2026. [Capture provenance](docs/SCREENSHOTS.md).
 
 ## Install the prototype
 
