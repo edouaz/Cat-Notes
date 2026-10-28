@@ -16,7 +16,9 @@ final class NativeInkGestureTests: XCTestCase {
         let source = stroke((0...20).map { CGPoint(x: $0 * 4, y: 20) }, pressure: (0...20).map { CGFloat($0) / 20 })
         var settings = EditorToolSettings()
         settings.pressureEnabled = true
+        settings.tipSharpness = 1
         let ball = try XCTUnwrap(StrokeProcessing.process(source, tool: .pen, width: 8, settings: settings, shapeHeld: false))
+        XCTAssertEqual(ball.style?.sharpness, 0)
         XCTAssertTrue(ball.path.allSatisfy { $0.size == CGSize(width: 8, height: 8) })
         var profiles: [CGFloat] = []
         for kind in [EditorToolSettings.PenStyle.fountain, .brush] {

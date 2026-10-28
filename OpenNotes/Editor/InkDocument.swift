@@ -185,7 +185,16 @@ struct InkStroke: Codable, Identifiable {
             let span = lengths[cursor + 1] - lengths[cursor]
             return tapered(.interpolate(samples[cursor], samples[cursor + 1], fraction: span > 0 ? (distance - lengths[cursor]) / span : 0), distance: distance)
         }
-        if pattern == .solid { return [zip(samples, lengths).map { tapered($0.0, distance: $0.1) }] }
+        if pattern == .solid {
+            guard taper > 0 else { return [samples] }
+            // Held lines can have only two points; sample the caps so their shaft keeps its width.
+            let capLength = min(total / 2, max(0.1, width * 1.5))
+            let caps = (0...4).flatMap { step -> [CGFloat] in
+                let distance = capLength * CGFloat(step) / 4
+                return [distance, total - distance]
+            }
+            return [Set(lengths + caps).sorted().map { sample(at: $0) }]
+        }
         let unit = max(0.1, width)
         if pattern == .dotted {
             var dots: [[InkStrokePoint]] = []

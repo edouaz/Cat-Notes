@@ -69,6 +69,16 @@ final class InkDocumentTests: XCTestCase {
         XCTAssertTrue(repeated.paintedPath.contains(CGPoint(x: 10, y: 30)))
         XCTAssertTrue(stroke().paintedPath.contains(CGPoint(x: 60, y: 30)))
     }
+    func testSharpnessTapersSparseLineCapsWithoutNarrowingTheShaft() throws {
+        var line = stroke()
+        line.style?.sharpness = 1
+        let points = try XCTUnwrap(line.paintedPaths().first)
+        XCTAssertLessThan(try XCTUnwrap(points.first).size.width, 1)
+        XCTAssertLessThan(try XCTUnwrap(points.last).size.width, 1)
+        XCTAssertEqual(points.map(\.size.width).max(), 6)
+        XCTAssertGreaterThan(points.count, 2)
+        XCTAssertTrue(line.paintedPath.contains(CGPoint(x: 60, y: 32)), "A sparse held line keeps its full-width shaft")
+    }
     func testRenderingIsStableAfterReload() throws {
         var source = stroke(count: 20, pattern: .dashed)
         source.style?.sharpness = 0.6

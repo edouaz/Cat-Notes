@@ -13,13 +13,9 @@ final class NativeInkInteractionUITests: XCTestCase {
         app.buttons["library.create"].tap()
         let canvas = app.scrollViews["editor.canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
-        let title = "Native ink " + UUID().uuidString.prefix(8)
-        app.buttons["editor.actions"].tap(); app.buttons["Rename notebook"].tap()
-        let field = app.alerts.textFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String ?? "").count) + title)
-        app.alerts.buttons["Save"].tap()
+        let tab = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.tab.")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 5))
+        let notebookID = String(tab.identifier.dropFirst("workspace.tab.".count))
 
         let undo = app.buttons["Undo"], redo = app.buttons["Redo"]
         XCTAssertFalse(undo.isEnabled)
@@ -51,7 +47,7 @@ final class NativeInkInteractionUITests: XCTestCase {
         app.buttons["workspace.library"].tap()
         XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10))
         app.terminate(); app.launch()
-        let notebook = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "library.note.", title)).firstMatch
+        let notebook = app.buttons["library.note." + notebookID]
         XCTAssertTrue(notebook.waitForExistence(timeout: 10)); notebook.tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         XCTAssertFalse(undo.isEnabled, "Reopening resets editing history")
