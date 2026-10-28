@@ -175,6 +175,7 @@ struct WritingCanvas: UIViewRepresentable {
         func completed(_ stroke: InkStroke) -> InkDrawing? {
             let previous = session.drawing
             circle = nil
+            guard stroke.ink.inkType != .marker, stroke.ink.inkType != .pencil else { return nil }
             let raw = stroke.rawSamples.map { $0.location.applying(stroke.transform) }
             if InkGestureRecognition.isScribble(raw, over: previous) {
                 let erased = EraserEditing.erase(previous, along: raw, width: max(12, (stroke.style?.width ?? 3) * 3), mode: .pixel)
@@ -186,7 +187,8 @@ struct WritingCanvas: UIViewRepresentable {
             return nil
         }
         func canSelectCircle(at point: CGPoint) -> Bool {
-            guard let circle, circle.expires > ProcessInfo.processInfo.systemUptime,
+            guard [.pen, .fountainPen].contains(session.selectedTool),
+                  let circle, circle.expires > ProcessInfo.processInfo.systemUptime,
                   pageID == session.page?.id, session.drawing.strokes.contains(where: { $0.id == circle.id }) else { return false }
             return InkGestureRecognition.isOnContour(point, contour: circle.contour, tolerance: 12 / max(0.1, activeCanvas.zoomScale))
         }

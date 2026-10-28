@@ -156,6 +156,10 @@ final class NativeInkIntegrationTests: XCTestCase {
             let angle = CGFloat(index) * .pi * 2 / 64
             return CGPoint(x: 100 + 50 * cos(angle), y: 100 + 50 * sin(angle))
         })
+        var markerCircle = circle
+        markerCircle.ink = InkInk(.marker, color: .yellow)
+        XCTAssertNil(coordinator.completed(markerCircle))
+        XCTAssertNil(coordinator.circle, "Highlighter gestures must not create pen lasso candidates")
         XCTAssertNil(coordinator.completed(circle))
         XCTAssertFalse(coordinator.canSelectCircle(at: CGPoint(x: 150, y: 100)), "A candidate cannot select before the circle is committed")
         editor.drawing = InkDrawing(strokes: [circle])

@@ -37,7 +37,13 @@ final class NativeInkInteractionUITests: XCTestCase {
         let options = app.scrollViews["instrument.options.scroll"]
         XCTAssertTrue(options.waitForExistence(timeout: 5))
         let pattern = app.buttons["instrument.pattern"]
-        for _ in 0..<4 where !pattern.isHittable { options.swipeUp() }
+        for _ in 0..<4 where !pattern.isHittable {
+            // Popover scroll views can report an empty XCTest visible frame; use the displayed bounds.
+            let frame = options.frame
+            let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.maxY - 30))
+            let end = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.minY + 30))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
         XCTAssertTrue(pattern.isHittable, "Native patterns must be reachable from the active toolbar")
         capture(app, "Native pen options — pattern and stabilization")
         app.buttons["Done"].tap()
