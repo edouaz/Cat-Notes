@@ -59,6 +59,16 @@ struct EditorInstrumentOptions: View {
                 }
             }
         }
+        if session.selectedTool != .marker {
+            optionSection("Apple Pencil") {
+                Toggle("Pressure", isOn: Binding(get: { session.toolSettings.pressureEnabled ?? (!isPen || session.toolSettings.penStyle != .ballpoint) }, set: { session.toolSettings.pressureEnabled = $0 }))
+                    .accessibilityIdentifier("instrument.pressureEnabled")
+                Toggle("Tilt", isOn: Binding(get: { session.toolSettings.tiltEnabled ?? (session.selectedTool == .pencil) }, set: { session.toolSettings.tiltEnabled = $0 }))
+                    .accessibilityIdentifier("instrument.tiltEnabled")
+                Text("Uses pressure and tilt when supplied by your Pencil. Finger input has a constant pressure and an upright tip.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
         optionSection("Stroke") {
             ColorPicker("Color", selection: Binding(get: { session.inkColor }, set: { session.setInkColor($0) }), supportsOpacity: false)
                 .frame(minHeight: 44)
@@ -82,7 +92,7 @@ struct EditorInstrumentOptions: View {
                     session.toolSettings.stabilization(for: session.selectedTool)
                 }, set: { session.toolSettings.setStabilization($0, for: session.selectedTool) }), in: 0...100, step: 1)
                     .accessibilityLabel("Stabilization")
-                Text("Saved for this instrument. Smoothing is applied on lift; 0% preserves the original stroke.")
+                Text("Saved for this instrument. Higher values steady the stroke with more lag; 0% follows the tip directly.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -91,7 +101,7 @@ struct EditorInstrumentOptions: View {
                 Toggle("Pencil hold shapes", isOn: $session.toolSettings.shapeRecognitionEnabled).frame(minHeight: 44)
                 Toggle("Snap lines to 45°", isOn: Binding(get: { session.toolSettings.shapeAngleSnap == true }, set: { session.toolSettings.shapeAngleSnap = $0 }))
                     .frame(minHeight: 44).disabled(!session.toolSettings.shapeRecognitionEnabled)
-                Text("Draw, then hold the tip still. The preview becomes a shape; lift the Pencil to keep it or continue drawing to cancel.")
+                Text("Draw, then hold the tip still. Once the shape appears, move the tip to adjust it and lift to keep it.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

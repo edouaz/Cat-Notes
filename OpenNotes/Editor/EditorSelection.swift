@@ -18,25 +18,19 @@ extension EditorSession {
 
     @discardableResult
     func moveSelection(inside path: UIBezierPath, by requested: CGPoint) async -> Bool {
-        guard requested.x.isFinite, requested.y.isFinite, await flush(), let original = page else { return false }
-        let drawing = canvas.drawing
-        let ink = toolSettings.includeHandwriting ? DocumentClipboard.selectedInk(drawing, inside: path) : PKDrawing()
-        let elements = DocumentClipboard.selectedElements(original, inside: path, settings: toolSettings)
-        guard !ink.strokes.isEmpty || !elements.isEmpty else { return false }
-        var bounds = ink.strokes.isEmpty ? CGRect.null : ink.bounds
-        for element in elements { bounds = bounds.union(CGRect(x: element.x, y: element.y, width: element.width, height: element.height)) }
-        let size = PageRenderer.size(original)
-        let delta = CGPoint(x: min(max(requested.x, -bounds.minX), max(-bounds.minX, size.width - bounds.maxX)),
-                            y: min(max(requested.y, -bounds.minY), max(-bounds.minY, size.height - bounds.maxY)))
+        guard requested.x.isFinite, requested.y.isFinite, let pageID = page?.id,
+              await flush(), let original = page, original.id == pageID else { return false }
+        let snapshot = SelectionMoveSnapshot(page: original, drawing: canvas.drawing, path: path, settings: toolSettings)
+        guard !snapshot.isEmpty else { return false }
+        let delta = snapshot.clamped(requested)
         guard delta != .zero else { return false }
-        let selectedIDs = Set(elements.map(\.id))
         let moved = (original.elements ?? []).map { element in
             var element = element
-            if selectedIDs.contains(element.id) { element.x += delta.x; element.y += delta.y }
+            if snapshot.elementIDs.contains(element.id) { element.x += delta.x; element.y += delta.y }
             return element
         }
-        let strokes = drawing.strokes.map { stroke in
-            guard toolSettings.includeHandwriting, DocumentClipboard.contains(stroke, inside: path) else { return stroke }
+        let strokes = canvas.drawing.strokes.enumerated().map { index, stroke in
+            guard snapshot.strokeIndices.contains(index) else { return stroke }
             return PKDrawing(strokes: [stroke]).transformed(using: CGAffineTransform(translationX: delta.x, y: delta.y)).strokes[0]
         }
         replaceContent(PKDrawing(strokes: strokes), elements: moved, actionName: "Move selection")
@@ -75,5 +69,34 @@ extension EditorSession {
         }
         replaceContent(PKDrawing(strokes: strokes), elements: updated, actionName: deleting ? "Delete selection" : "Resize selection")
         return await flush()
+    }
+}
+
+// Shared by the drag preview and the committed edit, including page-edge constraints.
+struct SelectionMoveSnapshot {
+    let strokeIndices: Set<Int>
+    let elementIDs: Set<UUID>
+    let ink: PKDrawing
+    let elements: [PageElement]
+    let bounds: CGRect
+    let pageSize: CGSize
+    var isEmpty: Bool { strokeIndices.isEmpty && elementIDs.isEmpty }
+
+    init(page: NotePage, drawing: PKDrawing, path: UIBezierPath, settings: EditorToolSettings) {
+        let indices = Set(drawing.strokes.indices.filter { settings.includeHandwriting && DocumentClipboard.contains(drawing.strokes[$0], inside: path) })
+        strokeIndices = indices
+        ink = PKDrawing(strokes: drawing.strokes.enumerated().filter { indices.contains($0.offset) }.map(\.element))
+        elements = DocumentClipboard.selectedElements(page, inside: path, settings: settings)
+        elementIDs = Set(elements.map(\.id))
+        var rect = ink.strokes.isEmpty ? CGRect.null : ink.bounds
+        for item in elements { rect = rect.union(CGRect(x: item.x, y: item.y, width: item.width, height: item.height)) }
+        bounds = rect
+        pageSize = PageRenderer.size(page)
+    }
+
+    func clamped(_ delta: CGPoint) -> CGPoint {
+        guard !isEmpty, delta.x.isFinite, delta.y.isFinite else { return .zero }
+        return CGPoint(x: min(max(delta.x, -bounds.minX), max(-bounds.minX, pageSize.width - bounds.maxX)),
+                       y: min(max(delta.y, -bounds.minY), max(-bounds.minY, pageSize.height - bounds.maxY)))
     }
 }

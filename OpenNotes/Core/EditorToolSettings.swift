@@ -37,7 +37,16 @@ struct EditorToolSettings: Codable, Equatable {
     // Optional additions preserve decoding of settings saved before the Goodnotes adaptation.
     var stabilizationByStyle: [String: Double]?
     var pressureSensitivity: Double?
+    var pressureEnabled: Bool?
+    var tiltEnabled: Bool?
     var rulerEnabled: Bool?
+    var markerTiltEnabled: Bool?
+    var penPressureEnabled: Bool { pressureEnabled ?? (penStyle != .ballpoint) }
+
+    mutating func applyPenPreset(_ style: PenStyle) {
+        penStyle = style
+        pressureEnabled = style != .ballpoint
+    }
 
     func stabilizationKey(for tool: DrawingToolKind) -> String {
         tool == .marker ? "marker" : penStyle.rawValue

@@ -82,4 +82,17 @@ final class InkPreviewTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(sample.drawing().bounds.minY, 0)
         }
     }
+    func testMarkerSwatchUsesPaperAppearanceAndTracksColor() throws {
+        var light: UIImage!, dark: UIImage!
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+            light = InkPreviewSample.markerSwatch(color: .yellow)
+        }
+        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
+            dark = InkPreviewSample.markerSwatch(color: .yellow)
+        }
+        XCTAssertEqual(light.pngData(), dark.pngData())
+        XCTAssertEqual(light.size, CGSize(width: 24, height: 24))
+        XCTAssertNotEqual(light.pngData(), InkPreviewSample.markerSwatch(color: .blue).pngData())
+    }
+
 }

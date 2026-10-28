@@ -8,6 +8,22 @@ OpenNotes is a SwiftUI app with a UIKit/PencilKit canvas. It targets iOS/iPadOS 
 
 Before editing a shared model or canvas function, search its callers and tests. Keep the existing separation: views describe controls, editor code handles drawing and coordinates, services handle persistence and external I/O.
 
+## Writing interaction
+
+The app uses PencilKit for live freehand rendering, committed stroke storage, zoom, and input recognition, with its own toolbar. Freehand strokes are not processed or reassigned at pen-up, even when legacy stabilization preferences exist. This avoids switching from a synthetic preview to a different final stroke. The native ruler keeps its constrained input path. Stroke and partial erasing also use PencilKit; the legacy intelligent mode retains its custom behavior. Partial eraser width is configurable on iOS 16.4 and later.
+
+Draw-and-hold locks a recognized line, rectangle or ellipse after 650 ms. Further movement adjusts the shape; small release jitter cannot restore the raw stroke. Lines keep their first endpoint; closed shapes rotate and scale around their center. The visible stroke enters the existing pending-save path and commits as one undo step. Cancelled native strokes restore the previous drawing.
+
+The live-ink preview is reserved for intentional draw-and-hold shapes and remains visible until PencilKit reports that the replacement drawing has rendered. Ordinary writing does not create that preview or swap to a resting bitmap on PDF pages. PDF export retains its existing compositing rules; on-screen freehand markers use PencilKit throughout the gesture and afterward. Legacy processing helpers remain for compatibility and isolated previews, not the freehand input path.
+
+On iPadOS 17+, pen presets select native monoline, fountain-pen and pen inks. Disabling pressure chooses monoline (a uniform round tip rather than a modified calligraphy nib). The highlighter can use translucent monoline for a round, pressure/tilt-independent stroke. These settings update the active tool immediately and persist in `EditorToolSettings`; earlier OS versions retain the original native tools. New ink types require iPadOS 17+ when reopening the saved drawing. No post-processing is added to freehand input.
+
+Selection movement caches the page without selected content and a transparent image of the selected ink/elements at pickup. Drag updates translate only the foreground image. `SelectionMoveSnapshot` shares hit-testing and page-edge constraints with the final edit. Cancellation discards the preview without changing the drawing; release commits one undoable edit. The ink preview stays until PencilKit has rendered the replacement. Whole-stroke eraser contact and Pencil hover display a cursor without consuming PencilKit’s erasing gesture.
+
+Alternatives reviewed: [MaLiang](https://github.com/Harley-xk/MaLiang) (MIT, Metal drawing engine) and [HandDrawingSwiftMetal](https://github.com/eisukekusachi/HandDrawingSwiftMetal). Neither is added: replacing the document engine would expand migration, erasing and export work. Apple's [PKStroke API](https://developer.apple.com/documentation/pencilkit/pkstroke-swift.struct) supports constructing editable strokes from our processed samples while retaining existing documents. No third-party source was copied.
+
+Physical Pencil latency, pressure calibration and long-stroke performance still require device testing; simulator interaction tests cannot establish those properties.
+
 ## Local persistence
 
 For update compatibility, the on-disk directory keeps its previous name: Application Support/CatNotes contains `library.json`, `library.backup.json` and `resources/`. Metadata is separate from drawing and imported resources. Writes are atomic; autosave waits approximately 700 ms. Leaving a page requires a successful flush. Pending drawing data must survive a failed write. Corruption produces an error and a recovery option rather than an empty replacement library.

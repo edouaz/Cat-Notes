@@ -4,21 +4,57 @@ import SwiftUI
 
 @MainActor
 final class LibraryLayoutTests: XCTestCase {
-    func testTabsShareAvailableWidthAndOverflowWithoutShrinkingControls() {
-        for width: CGFloat in [320, 700, 1100] {
-            XCTAssertEqual(OpenNotesStyle.notebookTabWidth(availableWidth: width, count: 1), width / 2)
+    func testTabWidthStaysStableAsDocumentsOpenAndClose() {
+        for available: CGFloat in [180, 320, 700, 1100] {
+            for count in 1...8 {
+                XCTAssertEqual(OpenNotesStyle.notebookTabWidth(availableWidth: available, count: count), min(240, available))
+            }
         }
-        for count in 2...5 {
-            let available: CGFloat = 1100
-            let width = OpenNotesStyle.notebookTabWidth(availableWidth: available, count: count)
-            XCTAssertEqual(width * CGFloat(count) + CGFloat(count - 1) * 4, available, accuracy: 0.01)
-            XCTAssertGreaterThanOrEqual(width, 180)
-        }
-        let overflow = OpenNotesStyle.notebookTabWidth(availableWidth: 700, count: 6)
-        XCTAssertEqual(overflow, 180)
-        XCTAssertGreaterThan(overflow * 6 + 20, 700)
         XCTAssertEqual(OpenNotesStyle.notebookTabWidth(availableWidth: 0, count: 3), 0)
         XCTAssertEqual(OpenNotesStyle.notebookTabWidth(availableWidth: 700, count: 0), 0)
+    }
+
+    func testTabOrderRestorationAndAdjacentCloseSelection() async throws {
+        let preferences = UserDefaults.standard
+        let keys = ["openNotebooks", "activeNotebook"]
+        let previous = keys.map { preferences.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, previous) { preferences.set(value, forKey: key) } }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LibraryStore(root: root)
+        await store.load()
+        var ids: [UUID] = []
+        for title in ["A", "B", "C", "D"] {
+            let created = await store.create(title: title)
+            ids.append(try XCTUnwrap(created))
+        }
+        let saved = await store.flush()
+        XCTAssertTrue(saved)
+        let workspace = NotebookWorkspace(store: store)
+        for id in ids { await workspace.select(id) }
+        await workspace.select(ids[1])
+        await workspace.select(ids[1])
+        XCTAssertEqual(workspace.tabs, ids, "Selecting an open notebook must not move or duplicate it")
+        let restored = NotebookWorkspace(store: store)
+        await restored.restore()
+        XCTAssertEqual(restored.tabs, ids)
+        XCTAssertEqual(restored.active, ids[1])
+        await restored.close(ids[1])
+        XCTAssertEqual(restored.tabs, [ids[0], ids[2], ids[3]])
+        XCTAssertEqual(restored.active, ids[2], "Closing the active tab selects its right neighbor")
+        await restored.close(ids[0])
+        XCTAssertEqual(restored.active, ids[2], "Closing an inactive tab preserves selection")
+        await restored.select(ids[3])
+        await restored.close(ids[3])
+        XCTAssertEqual(restored.active, ids[2], "Closing the last tab selects its left neighbor")
+        await restored.close(ids[2])
+        XCTAssertNil(restored.active)
+        XCTAssertTrue(restored.tabs.isEmpty)
+        preferences.set([ids[0], UUID(), ids[1], ids[0]].map(\.uuidString), forKey: "openNotebooks")
+        preferences.set(ids[1].uuidString, forKey: "activeNotebook")
+        await restored.restore()
+        XCTAssertEqual(restored.tabs, [ids[0], ids[1]], "Restoration removes missing and duplicate IDs without sorting")
+        XCTAssertEqual(restored.active, ids[1])
     }
 
     func testMixedLibraryVisualMatrix() async throws {

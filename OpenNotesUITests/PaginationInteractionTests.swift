@@ -41,7 +41,6 @@ final class PaginationInteractionTests: XCTestCase {
 
     func testTwentyRealSwipeRoundTripsBoundariesZoomAndReopen() {
         for page in 2...3 {
-            app.buttons["editor.insert"].tap()
             XCTAssertTrue(app.buttons["editor.addPage"].waitForExistence(timeout: 5))
             app.buttons["editor.addPage"].tap()
             waitForPage(page, total: page)
@@ -69,8 +68,6 @@ final class PaginationInteractionTests: XCTestCase {
         waitForPage(2)
         screenshot("Zoomed page keeps canvas pan")
         app.buttons["workspace.library"].tap()
-        XCTAssertTrue(app.buttons[notebookID].waitForExistence(timeout: 10))
-        app.buttons[notebookID].tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         waitForPage(2)
         waitForZoom(above: 120)
@@ -100,7 +97,7 @@ final class PaginationInteractionTests: XCTestCase {
     }
 
     func testZoomPanAndReopenPreserveTheMagnification() {
-        app.buttons["editor.insert"].tap(); app.buttons["editor.addPage"].tap()
+        app.buttons["editor.addPage"].tap()
         waitForPage(2, total: 2)
         canvas.pinch(withScale: 2.0, velocity: 1)
         waitForZoom(above: 120)

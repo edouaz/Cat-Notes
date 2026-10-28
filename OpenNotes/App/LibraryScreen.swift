@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 struct LibraryScreen: View {
     @EnvironmentObject var store: LibraryStore
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @AppStorage("librarySidebarShown") private var sidebarShown = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var workspace: NotebookWorkspace?
     @Environment(\.scenePhase) private var scenePhase
@@ -17,16 +16,12 @@ struct LibraryScreen: View {
     private var trash: Bool { filter == 2 }
     private var favorites: Bool { filter == 1 }
     @State private var importer = false
-    @State private var settings = false
-    @State private var diagnosticsShown = false
     @State private var selectedFolderID: UUID?
     @State private var folderEditorShown = false
     @State private var renamedFolder: NotebookFolder?
     @State private var moveShown = false
     @State private var movingFolder: UUID?
     @State private var movingDocuments: [UUID] = []
-    @State private var selectingDocuments = false
-    @State private var selectedDocuments: Set<UUID> = []
     @AppStorage("librarySort") private var sort = "date"
     private var currentFolderID: UUID? { selectedFolderID ?? store.library.folders.first?.id }
     private var folders: [NotebookFolder] {
@@ -49,19 +44,11 @@ struct LibraryScreen: View {
         }
     }
     private var navigationContent: some View {
-        HStack(spacing: 0) {
-            if sidebarShown && sizeClass == .regular && !dynamicTypeSize.isAccessibilitySize {
-                librarySidebar
-            }
-            libraryContent
-        }
-        .navigationTitle(trash ? "Trash" : favorites ? "Favorites" : selectedFolderID.flatMap { id in store.library.folders.first(where: { $0.id == id })?.name } ?? "Documents")
+        libraryContent
+        .navigationTitle(trash ? "Trash" : favorites ? "Favorites" : selectedFolderID.flatMap { id in store.library.folders.first(where: { $0.id == id })?.name } ?? "Notebooks")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "Document titles and text")
-        .onChange(of: filter) { value in if value != 0 { selectedFolderID = nil }; resetSelection() }
-        .onChange(of: selectedFolderID) { _ in resetSelection() }
-        .onChange(of: query) { _ in resetSelection() }
-        .onChange(of: notes.map(\.id)) { visible in selectedDocuments.formIntersection(visible) }
+        .searchable(text: $query, prompt: "Search notebooks")
+        .onChange(of: filter) { value in if value != 0 { selectedFolderID = nil } }
         .task(id: query) {
             guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
@@ -71,8 +58,24 @@ struct LibraryScreen: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) { Button { diagnosticsShown = true } label: { Label("Diagnostic", systemImage: "ladybug") } }
-            if sizeClass == .regular && !dynamicTypeSize.isAccessibilitySize { ToolbarItem(placement: .navigationBarLeading) { Button { sidebarShown.toggle() } label: { Label("Sidebar", systemImage: "sidebar.left") } } } }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Import", systemImage: "square.and.arrow.down") { importer = true }
+                    Button("New folder", systemImage: "folder.badge.plus") { renamedFolder = nil; folderEditorShown = true }
+                    Picker("Show", selection: $filter) {
+                        Text("Notebooks").tag(0)
+                        Text("Favorites").tag(1)
+                        Text("Trash").tag(2)
+                    }
+                    Picker("Sort", selection: $sort) {
+                        Text("Recently edited").tag("date")
+                        Text("Name").tag("name")
+                    }
+                } label: { Label("Library options", systemImage: "ellipsis") }
+                .accessibilityIdentifier("library.options")
+                .disabled(!store.ready)
+            }
+        }
         .navigationDestination(for: UUID.self) { id in
             if let workspace { NotebookWorkspaceView(workspace: workspace) }
         }
@@ -133,26 +136,14 @@ struct LibraryScreen: View {
                 FolderPickerSheet(store: store, movingFolderID: movingFolder) { destination in
                     if let movingFolder { store.apply(.init(kind: .moveFolder, folderID: movingFolder, parentID: destination)) }
                     else { store.apply(.init(kind: .moveDocuments, folderID: destination, documentIDs: movingDocuments)) }
-                    selectedDocuments = []; selectingDocuments = false
                 }
             }
-            .sheet(isPresented: $diagnosticsShown) { DiagnosticsScreen() }
-            .sheet(isPresented: $settings) { CloudScreen(store: store) }
     }
     private var libraryContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                ViewThatFits(in: .horizontal) {
-                    HStack { newNoteButton; importButton; folderButton }.fixedSize(horizontal: true, vertical: false)
-                    VStack(alignment: .leading, spacing: 12) { newNoteButton; importButton; folderButton }
-                }.disabled(!store.ready)
-                if filter == 0 && query.isEmpty { folderBreadcrumbs }
-                adaptiveLibraryControls
-                if sizeClass != .regular || dynamicTypeSize.isAccessibilitySize {
-                    Picker("Documents", selection: $filter) {
-                        Text("Documents").tag(0); Text("Favorites").tag(1); Text("Trash").tag(2)
-                    }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("library.filter")
-                }
+                if !trash { newNoteButton.disabled(!store.ready) }
+                if filter == 0 && query.isEmpty && selectedFolderID != nil { folderBreadcrumbs }
                 if !store.ready { ProgressView("Opening library…") }
                 else if notes.isEmpty && folders.isEmpty {
                     VStack(spacing: 16) {
@@ -168,45 +159,6 @@ struct LibraryScreen: View {
                 }
             }.padding(dynamicTypeSize.isAccessibilitySize || sizeClass != .regular ? 16 : 28)
         }.frame(maxWidth: .infinity).background(Color(uiColor: .systemGroupedBackground))
-    }
-    private var librarySidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("OpenNotes").font(.title.bold()).padding(20).accessibilityAddTraits(.isHeader)
-            List {
-                Section {
-                    sidebarItem("Documents", "folder", 0)
-                    sidebarItem("Favorites", "star", 1)
-                    sidebarItem("Trash", "trash", 2)
-                }
-                let rootFolders = store.library.childFolders(of: store.library.folders.first?.id)
-                if !rootFolders.isEmpty {
-                    Section("Folders") {
-                        ForEach(rootFolders) { folder in
-                            let selected = filter == 0 && currentFolderID == folder.id
-                            Button {
-                                filter = 0
-                                selectedFolderID = folder.id
-                                query = ""
-                                resetSelection()
-                            } label: {
-                                HStack {
-                                    Label(folder.name, systemImage: "folder")
-                                        .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                                    if selected { Image(systemName: "checkmark").accessibilityHidden(true) }
-                                }.frame(minHeight: 44).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                                .foregroundStyle(selected ? OpenNotesStyle.accent : Color.primary)
-                                .accessibilityAddTraits(selected ? .isSelected : [])
-                                .accessibilityIdentifier("library.sidebar.folder.\(folder.id.uuidString)")
-                                .contextMenu { folderActions(folder) }
-                        }
-                    }
-                }
-            }.listStyle(.sidebar)
-            Label("On this device", systemImage: "internaldrive")
-                .font(.caption).foregroundStyle(.secondary).padding(20)
-        }.frame(width: 250).frame(maxHeight: .infinity)
-            .background(Color(uiColor: .secondarySystemBackground))
     }
     private func cardTitle(_ title: String) -> some View {
         Group {
@@ -249,12 +201,9 @@ struct LibraryScreen: View {
         Button("Move", systemImage: "folder") { movingFolder = folder.id; movingDocuments = []; moveShown = true }
     }
     private func noteCard(_ note: NoteDocument) -> some View {
-        let selected = selectedDocuments.contains(note.id)
         return VStack(alignment: .leading, spacing: 8) {
             Button {
-                if selectingDocuments {
-                    if selected { selectedDocuments.remove(note.id) } else { selectedDocuments.insert(note.id) }
-                } else if !trash { openNotebook(note.id) }
+                if !trash { openNotebook(note.id) }
             } label: {
                 VStack(alignment: .leading, spacing: 12) {
                     Group {
@@ -262,18 +211,12 @@ struct LibraryScreen: View {
                         else { Image(systemName: "doc").resizable().scaledToFit().foregroundStyle(.tertiary) }
                     }.padding(12).frame(maxWidth: .infinity).frame(height: 192)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(alignment: .topTrailing) {
-                            if selectingDocuments {
-                                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                    .font(.title2).foregroundStyle(OpenNotesStyle.accent).padding(6).background(Color(uiColor: .systemBackground), in: Circle()).padding(6)
-                            }
-                        }.accessibilityHidden(true)
+                        .accessibilityHidden(true)
                     cardTitle(note.title)
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(trash)
                 .accessibilityLabel(note.title)
-                .accessibilityValue(trash ? "In Trash" : selectingDocuments ? (selected ? "Selected" : "Not selected") : "")
-                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityValue(trash ? "In Trash" : "")
                 .accessibilityIdentifier("library.note.\(note.id.uuidString)")
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -289,49 +232,8 @@ struct LibraryScreen: View {
             }
             if trash { Text("In Trash · Restore from the menu").font(.caption).foregroundStyle(.secondary) }
         }.padding(12).background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? OpenNotesStyle.accent : Color(uiColor: .separator).opacity(0.3), lineWidth: selected ? 2 : 1) }
+            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(Color(uiColor: .separator).opacity(0.3), lineWidth: 1) }
             .contextMenu { noteActions(note) }
-    }
-    private var adaptiveLibraryControls: some View {
-        ViewThatFits(in: .horizontal) {
-            if !dynamicTypeSize.isAccessibilitySize {
-                libraryControls.fixedSize(horizontal: true, vertical: false)
-            }
-            compactLibraryControls
-        }
-    }
-    private var compactLibraryControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Sort", selection: $sort) {
-                Text("Date").tag("date")
-                Text("Name").tag("name")
-            }.pickerStyle(.menu)
-            selectionControls
-        }
-    }
-    private var libraryControls: some View {
-        HStack(spacing: 16) {
-            Picker("Sort", selection: $sort) { Text("Date").tag("date"); Text("Name").tag("name") }.pickerStyle(.segmented).frame(width: 200)
-            selectionControls
-        }
-    }
-    private var selectionControls: some View {
-        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 16))
-        return layout {
-            if !trash {
-            if selectingDocuments && !selectedDocuments.isEmpty {
-                Button { movingFolder = nil; movingDocuments = Array(selectedDocuments); moveShown = true } label: {
-                    Text("Move (\(selectedDocuments.count))").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                }.accessibilityIdentifier("library.move")
-            }
-            Button { selectingDocuments.toggle(); selectedDocuments = [] } label: {
-                Text(selectingDocuments ? "Done" : "Select").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-            }.accessibilityIdentifier("library.select")
-            }
-        }.fixedSize(horizontal: false, vertical: true)
-    }
-    private var folderButton: some View {
-        Button { renamedFolder = nil; folderEditorShown = true } label: { Label("Folder", systemImage: "folder.badge.plus") }.buttonStyle(.bordered).buttonBorderShape(.roundedRectangle).controlSize(.large)
     }
     private var folderBreadcrumbs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -345,19 +247,6 @@ struct LibraryScreen: View {
                 }
             }.font(.subheadline)
         }
-    }
-    private func sidebarItem(_ title: String, _ symbol: String, _ value: Int) -> some View {
-        let selected = filter == value && (value != 0 || selectedFolderID == nil)
-        return Button { filter = value; selectedFolderID = nil; resetSelection() } label: {
-            HStack {
-                Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading)
-                if selected { Image(systemName: "checkmark").accessibilityHidden(true) }
-            }.frame(minHeight: 44).contentShape(Rectangle())
-        }.buttonStyle(.plain).foregroundStyle(selected ? OpenNotesStyle.accent : Color.primary)
-            .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-    private func resetSelection() {
-        selectedDocuments = []; selectingDocuments = false
     }
     private func openNotebook(_ id: UUID) {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -399,10 +288,6 @@ struct LibraryScreen: View {
             .labelStyle(.titleAndIcon).buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle).controlSize(.large)
             .accessibilityIdentifier("library.create")
             .keyboardShortcut("n", modifiers: .command)
-    }
-    private var importButton: some View {
-        Button { importer = true } label: { Label("Import", systemImage: "square.and.arrow.down").fixedSize(horizontal: false, vertical: true) }
-            .labelStyle(.titleAndIcon).buttonStyle(.bordered).buttonBorderShape(.roundedRectangle).controlSize(.large)
     }
     private func createNote() {
         Task { if let id = await store.create(folderID: currentFolderID) { openNotebook(id) } }

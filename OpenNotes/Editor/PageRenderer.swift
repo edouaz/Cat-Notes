@@ -28,6 +28,10 @@ enum PageRenderer {
         } else {
             PaperTemplateUIView.draw(page.template, in: context, rect: bounds)
         }
+        elements(page, resources: resources, context: context, images: images, drewPDF: drewPDF)
+    }
+    static func elements(_ page: NotePage, resources: [String: Data], context: CGContext, images: [String: UIImage], drewPDF: Bool) {
+        let bounds = CGRect(origin: .zero, size: size(page))
         for item in page.elements ?? [] {
             let rect = CGRect(x: item.x, y: item.y, width: item.width, height: item.height)
             (item.strokeColorHex.flatMap(UIColor.init(presetHex:)) ?? .black).setStroke()

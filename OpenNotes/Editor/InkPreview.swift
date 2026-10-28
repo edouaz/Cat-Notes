@@ -87,7 +87,7 @@ struct InkPreviewSample: Equatable {
         let original = PKStroke(ink: PKInk(inkType, color: color),
                                 path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 0)),
                                 transform: .identity, mask: nil, randomSeed: 1)
-        // The preview uses the canvas' completed-stroke processing, without activating hold recognition.
+        // Preview and live ink share processing, without activating hold recognition.
         let processed = StrokeProcessing.process(original, tool: kind, width: processingWidth, settings: settings, shapeHeld: false) ?? original
         return PKDrawing(strokes: [processed])
     }
@@ -113,5 +113,45 @@ struct InkPreviewSample: Equatable {
             }
         }
         return result
+    }
+}
+
+// Swatches use the same translucent marker renderer as the document, on white paper.
+struct PaperInkSwatch: View {
+    let hex: String
+    let marker: Bool
+    @State private var image: UIImage?
+    var body: some View {
+        ZStack {
+            Color(uiColor: marker ? .white : UIColor(presetHex: hex) ?? .black)
+            if marker, let image { Image(uiImage: image).resizable() }
+        }
+        .frame(width: 24, height: 24).clipShape(Circle())
+        .task(id: "\(hex)-\(marker)") {
+            guard marker else { image = nil; return }
+            let color = UIColor(presetHex: hex) ?? .black
+            let result = await Task.detached(priority: .userInitiated) { InkPreviewSample.markerSwatch(color: color) }.value
+            guard !Task.isCancelled else { return }
+            image = result
+        }
+    }
+}
+
+extension InkPreviewSample {
+    static func markerSwatch(color: UIColor) -> UIImage {
+        let bounds = CGRect(x: 0, y: 0, width: 24, height: 24)
+        let points = [-24.0, 12, 48].enumerated().map { index, x in
+            PKStrokePoint(location: CGPoint(x: x, y: 12), timeOffset: Double(index) * 0.1,
+                          size: CGSize(width: 40, height: 40), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        }
+        let stroke = PKStroke(ink: PKInk(.marker, color: color),
+                              path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 0)),
+                              transform: .identity, mask: nil, randomSeed: 1)
+        let ink = PKDrawing(strokes: [stroke]).paperImage(from: bounds, scale: 2)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 2; format.opaque = true
+        return UIGraphicsImageRenderer(size: bounds.size, format: format).image { renderer in
+            UIColor.white.setFill(); renderer.fill(bounds)
+            ink.draw(in: bounds)
+        }
     }
 }

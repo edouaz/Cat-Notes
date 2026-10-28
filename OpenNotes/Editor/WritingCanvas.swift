@@ -19,7 +19,7 @@ struct WritingCanvas: UIViewRepresentable {
     var pasted: (() -> Void)?
     var editNote: ((PageElement) -> Void)?
     var imageEditingEnded: (() -> Void)?
-    var selectionMoved: ((UIBezierPath, CGPoint) -> Void)?
+    var selectionMoved: ((UIBezierPath, CGPoint) async -> Bool)?
     var onEraserStroke: (([CGPoint]) -> Void)?
     var prepare: ((Int) -> Void)?
     var addPage: ((Int) async -> Bool)?
@@ -50,7 +50,13 @@ struct WritingCanvas: UIViewRepresentable {
         view.pageTurn.disabled = selecting || editingImages || session.busy || (!reading && session.selectedTool == .lasso)
         view.onImageEditingEnded = imageEditingEnded
         view.touchObserver.pageID = page.id
-        view.touchObserver.erasing = !reading && !editingImages && !selecting && session.selectedTool == .eraser
+        view.touchObserver.erasing = !reading && !editingImages && !selecting && session.selectedTool == .eraser && (onEraserStroke != nil || session.toolSettings.eraserMode == .intelligent)
+        view.eraserCursorEnabled = !reading && !editingImages && !selecting && session.selectedTool == .eraser && session.toolSettings.eraserMode != .pixel
+        if #available(iOS 16.4, *), let eraser = session.tool as? PKEraserTool {
+            view.eraserCursorWidth = eraser.width
+        } else { view.eraserCursorWidth = session.toolSettings.eraserWidth }
+        view.touchObserver.observeEraser = view.eraserCursorEnabled
+        view.touchObserver.eraserPointer = { [weak view] point in view?.showEraserCursor(at: point) }
         view.touchObserver.observeWriting = !reading && !editingImages && !selecting && session.selectedTool.isWritingTool
         view.touchObserver.observeShapes = session.toolSettings.rulerEnabled != true && !reading && !editingImages && !selecting && session.toolSettings.shapeRecognitionEnabled && [.pen, .fountainPen, .marker].contains(session.selectedTool)
         view.touchObserver.fingerDrawing = finger
@@ -65,15 +71,19 @@ struct WritingCanvas: UIViewRepresentable {
         }
         view.touchObserver.held = { [weak coordinator = context.coordinator] points in coordinator?.previewHeldShape(points) }
         view.touchObserver.holdCancelled = { [weak coordinator = context.coordinator] in
-            coordinator?.shapeHeld = false; coordinator?.container?.clearShapePreview()
+            coordinator?.clearHeldShape()
         }
         view.touchObserver.cancelledStroke = { [weak coordinator = context.coordinator] in
             coordinator?.cancelStroke(restoringDrawing: true)
         }
         view.touchObserver.beganStroke = { [weak coordinator = context.coordinator] in
-            coordinator?.shapeHeld = false; coordinator?.container?.clearShapePreview()
+            guard let coordinator, coordinator.session.selectedTool.isWritingTool else { return }
+            coordinator.clearHeldShape()
+            coordinator.canvasViewDidBeginUsingTool(coordinator.activeCanvas)
         }
-        view.configureSelection(selecting, immediate: immediateSelection, shape: session.toolSettings.lassoShape, moved: selectionMoved, selected: selectedRect)
+        view.touchObserver.sampled = { [weak coordinator = context.coordinator] samples in coordinator?.previewSamples(samples) }
+        view.touchObserver.adjustedShape = { [weak coordinator = context.coordinator] point in coordinator?.adjustHeldShape(point) }
+        view.configureSelection(selecting, session: session, immediate: immediateSelection, shape: session.toolSettings.lassoShape, moved: selectionMoved, selected: selectedRect)
         view.onPaste = { point in Task { await session.paste(at: point); pasted?() } }
         view.verticalPaging = verticalPaging
         view.fingerDrawing = finger
@@ -109,7 +119,7 @@ struct WritingCanvas: UIViewRepresentable {
         view.configureImages(!selecting ? page : nil, images: session.artwork?.images ?? [:], pencil: editingImages) { item, id in
             Task { await session.apply(.init(pageID: page.id, kind: item == nil ? .removeElement : .upsertElement, element: item, elementID: id)) }
         }
-        view.configureCompositedInk(page: page, artwork: session.artwork, drawing: session.drawing)
+        // Keep PencilKit visible on PDF pages too; swapping an idle bitmap causes a visible handoff.
         view.layoutIfNeeded()
         view.pageTurn.pageInstalled(page.id)
     }
@@ -133,19 +143,28 @@ struct WritingCanvas: UIViewRepresentable {
         var loading = false
         var reading = false
         var shapeHeld = false
+        private var shapeAdjustment: ShapeRecognition.Adjustment?
+        private var heldStroke: PKStroke?
+        private var lastAdjustmentPoint: CGPoint?
+        private var previewStroke: PKStroke?
+        private var lastSample: PKStrokePoint?
+        private var awaitingShapeRender = false
+        private var strokeCreatedAt = Date()
         private var strokeStartCount: Int?
         private var strokePageID: UUID?
         private var strokeEnded = false
         private var processingStroke = false
         private var strokeSettings = EditorToolSettings()
         private var strokeTool = DrawingToolKind.pen
-        private var strokeWidth = 3.0
         private var strokeBefore: PKDrawing?
         private var strokeUndoManagers: [UndoManager] = []
         private var interactionScheduled = false
         private var lastTool: DrawingToolKind?
+        private var lastSettings: EditorToolSettings?
         private var lastWidth: Double?
         private var lastColor: UIColor?
+        private var lastEraserMode: EditorToolSettings.EraserMode?
+        private var lastEraserWidth: Double?
         func updateInteraction() {
             guard !interactionScheduled else { return }
             interactionScheduled = true
@@ -173,9 +192,13 @@ struct WritingCanvas: UIViewRepresentable {
         }
         func configureTool(_ canvas: PKCanvasView) {
             let color = UIColor(session.inkColor)
-            guard lastTool != session.selectedTool || (session.selectedTool.isWritingTool && (lastWidth != session.inkWidth || lastColor != color)) else { return }
+            let eraserChanged = session.selectedTool == .eraser &&
+                (lastEraserMode != session.toolSettings.eraserMode || lastEraserWidth != session.toolSettings.eraserWidth)
+            guard lastTool != session.selectedTool || lastSettings != session.toolSettings || eraserChanged || (session.selectedTool.isWritingTool && (lastWidth != session.inkWidth || lastColor != color)) else { return }
             canvas.tool = session.tool
+            lastSettings = session.toolSettings
             lastTool = session.selectedTool; lastWidth = session.inkWidth; lastColor = color
+            lastEraserMode = session.toolSettings.eraserMode; lastEraserWidth = session.toolSettings.eraserWidth
         }
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { container?.savePosition() }
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { container?.savePosition() } }
@@ -197,22 +220,25 @@ struct WritingCanvas: UIViewRepresentable {
         func scrollViewDidZoom(_ scrollView: UIScrollView) { container?.alignBackground() }
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard !loading else { return }
-            if zoomWindow { session.canvas.drawing = canvasView.drawing }
-            session.changed(canvasView.drawing)
+            if let previewStroke, let previous = strokeBefore, !processingStroke {
+                session.changed(PKDrawing(strokes: previous.strokes + [previewStroke]))
+            } else {
+                if zoomWindow { session.canvas.drawing = canvasView.drawing }
+                session.changed(canvasView.drawing)
+            }
             if strokeEnded && !processingStroke { finishStroke(canvasView) }
-            updateComposite(canvasView)
+            updateUndoAvailability()
         }
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            guard strokeStartCount == nil else { return }
+            clearHeldShape(); previewStroke = nil; lastSample = nil; strokeCreatedAt = Date()
             restoreStrokeUndoRegistration()
             container?.setDrawingActive(true)
             strokePageID = pageID
             strokeStartCount = canvasView.drawing.strokes.count; strokeEnded = false
-            strokeSettings = session.toolSettings; strokeTool = session.selectedTool; strokeWidth = session.documentInkWidth
-            if [.pen, .fountainPen, .marker].contains(strokeTool) {
+            strokeSettings = session.toolSettings; strokeTool = session.selectedTool
+            if strokeTool.isWritingTool {
                 strokeBefore = canvasView.drawing
-                for manager in [canvasView.undoManager, session.canvas.undoManager].compactMap({ $0 }) where !strokeUndoManagers.contains(where: { $0 === manager }) {
-                    manager.disableUndoRegistration(); strokeUndoManagers.append(manager)
-                }
             }
         }
         private func restoreStrokeUndoRegistration() {
@@ -228,7 +254,8 @@ struct WritingCanvas: UIViewRepresentable {
                 loading = false
             }
             restoreStrokeUndoRegistration()
-            strokeStartCount = nil; strokePageID = nil; strokeEnded = false; shapeHeld = false
+            strokeStartCount = nil; strokePageID = nil; strokeEnded = false
+            clearHeldShape(); previewStroke = nil
             container?.clearShapePreview(); container?.setDrawingActive(false)
         }
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
@@ -236,48 +263,118 @@ struct WritingCanvas: UIViewRepresentable {
             DispatchQueue.main.async { [weak self, weak canvasView] in
                 guard let self, let canvasView else { return }
                 guard self.strokePageID == self.pageID else { return }
-                self.finishStroke(canvasView)
-                if canvasView.drawing.strokes.count == self.strokeStartCount { self.cancelStroke() }
+                if self.strokeTool.isWritingTool {
+                    self.finishStroke(canvasView)
+                    if canvasView.drawing.strokes.count == self.strokeStartCount {
+                        // PencilKit may deliver the finished stroke after pen-up.
+                        // Do not reset its drawing while that rendering is pending.
+                        self.cancelStroke(restoringDrawing: self.shapeHeld)
+                    }
+                } else {
+                    // Native erasing can remove strokes instead of appending one.
+                    self.cancelStroke()
+                }
                 self.container?.setDrawingActive(false)
-                self.updateComposite(canvasView)
+                self.updateUndoAvailability()
             }
         }
-        private func updateComposite(_ canvasView: PKCanvasView) {
-            // Live ink is already visible in PencilKit; rebuild the idle composite after the stroke.
-            guard strokeStartCount == nil || strokeEnded else { return }
-            guard let page = session.page else { return }
-            container?.configureCompositedInk(page: page, artwork: session.artwork, drawing: canvasView.drawing)
+        func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+            container?.selectionDidRender()
+            guard awaitingShapeRender else { return }
+            // A held shape is an intentional replacement. Keep its preview until
+            // PencilKit has rendered it, rather than exposing an empty frame.
+            awaitingShapeRender = false
+            container?.clearShapePreview()
+        }
+        func clearHeldShape() {
+            awaitingShapeRender = false
+            shapeHeld = false; shapeAdjustment = nil; heldStroke = nil; lastAdjustmentPoint = nil
+            container?.clearShapePreview()
+        }
+        private func pagePoint(_ screenPoint: CGPoint) -> CGPoint {
+            CGPoint(x: (screenPoint.x + activeCanvas.contentOffset.x) / activeCanvas.zoomScale,
+                    y: (screenPoint.y + activeCanvas.contentOffset.y) / activeCanvas.zoomScale)
+        }
+        func previewSamples(_ samples: [PKStrokePoint]) {
+            // Samples are only needed to style an explicitly held shape. Freehand
+            // ink is rendered and committed exclusively by PencilKit.
+            guard !shapeHeld, strokePageID == pageID else { return }
+            lastSample = samples.last
+        }
+        private func showPreview() {
+            guard let container, let page = session.page, page.id == pageID,
+                  let previewStroke, let previous = strokeBefore else { return }
+            container.showLiveStroke(page: page, artwork: session.artwork, previous: previous, stroke: previewStroke)
+            // Backgrounding or changing pages must save the same ink the user currently sees.
+            session.changed(PKDrawing(strokes: previous.strokes + [previewStroke]))
         }
         func previewHeldShape(_ screenPoints: [CGPoint]) {
-            guard let container, let page = session.page, page.id == pageID, strokePageID == pageID,
-                  let count = strokeStartCount, let ink = activeCanvas.tool as? PKInkingTool else { return }
-            let points = screenPoints.enumerated().map { index, point in
-                PKStrokePoint(location: CGPoint(x: (point.x + activeCanvas.contentOffset.x) / activeCanvas.zoomScale,
-                                                y: (point.y + activeCanvas.contentOffset.y) / activeCanvas.zoomScale),
-                              timeOffset: Double(index) * 0.01, size: CGSize(width: ink.width, height: ink.width), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            guard strokeSettings.rulerEnabled != true, strokePageID == pageID,
+                  let pointer = screenPoints.last, let ink = activeCanvas.tool as? PKInkingTool,
+                  let recognized = ShapeRecognition.recognize(screenPoints.map(pagePoint)) else { return }
+            if !shapeHeld {
+                // Only an intentional shape replacement needs a custom undo step.
+                // Ordinary strokes keep PencilKit's own undo registration.
+                for manager in [activeCanvas.undoManager, session.canvas.undoManager].compactMap({ $0 }) where !strokeUndoManagers.contains(where: { $0 === manager }) {
+                    manager.disableUndoRegistration(); strokeUndoManagers.append(manager)
+                }
             }
-            let raw = PKStroke(ink: PKInk(ink.inkType, color: ink.color), path: PKStrokePath(controlPoints: points, creationDate: Date()))
-            guard let clean = StrokeProcessing.process(raw, tool: strokeTool, width: strokeWidth, settings: strokeSettings, shapeHeld: true) else { return }
-            shapeHeld = true
-            container.showShapePreview(page: page, artwork: session.artwork, drawing: PKDrawing(strokes: Array(activeCanvas.drawing.strokes.prefix(count)) + [clean]))
+            let points = strokeSettings.shapeAngleSnap == true ? StrokeProcessing.snappedLine(recognized) : recognized
+            shapeAdjustment = ShapeRecognition.Adjustment(points: points, pointer: pagePoint(pointer))
+            let source = lastSample
+            let controls = (points.count <= 5 ? points.flatMap { [$0, $0, $0] } : points).enumerated().map { index, point in
+                PKStrokePoint(location: point, timeOffset: Double(index) * 0.01,
+                              size: source?.size ?? CGSize(width: ink.width, height: ink.width), opacity: source?.opacity ?? 1,
+                              force: source?.force ?? 0.5, azimuth: source?.azimuth ?? 0, altitude: source?.altitude ?? .pi / 2)
+            }
+            heldStroke = PKStroke(ink: PKInk(ink.inkType, color: ink.color),
+                                  path: PKStrokePath(controlPoints: controls, creationDate: strokeCreatedAt),
+                                  transform: .identity, mask: nil, randomSeed: 1)
+            shapeHeld = true; previewStroke = heldStroke; lastAdjustmentPoint = pointer
+            showPreview()
+        }
+        func adjustHeldShape(_ screenPoint: CGPoint) {
+            guard shapeHeld, let shapeAdjustment, let heldStroke, let previous = lastAdjustmentPoint,
+                  hypot(screenPoint.x - previous.x, screenPoint.y - previous.y) >= 2 else { return }
+            lastAdjustmentPoint = screenPoint
+            var points = shapeAdjustment.points(at: pagePoint(screenPoint))
+            if strokeSettings.shapeAngleSnap == true { points = StrokeProcessing.snappedLine(points) }
+            if points.count <= 5 { points = points.flatMap { [$0, $0, $0] } }
+            let controls = points.enumerated().map { index, location in
+                let source = heldStroke.path[min(index, heldStroke.path.count - 1)]
+                return PKStrokePoint(location: location, timeOffset: source.timeOffset, size: source.size, opacity: source.opacity,
+                                     force: source.force, azimuth: source.azimuth, altitude: source.altitude)
+            }
+            previewStroke = PKStroke(ink: heldStroke.ink, path: PKStrokePath(controlPoints: controls, creationDate: strokeCreatedAt),
+                                     transform: .identity, mask: nil, randomSeed: heldStroke.randomSeed)
+            showPreview()
         }
         private func finishStroke(_ canvasView: PKCanvasView) {
             guard !loading, !processingStroke, let pageID, strokePageID == pageID, session.page?.id == pageID, let count = strokeStartCount,
-                  canvasView.drawing.strokes.count == count + 1, let last = canvasView.drawing.strokes.last else { return }
+                  canvasView.drawing.strokes.count == count + 1 else { return }
             strokeStartCount = nil; strokeEnded = false
-            let replacement = StrokeProcessing.process(last, tool: strokeTool, width: strokeWidth, settings: strokeSettings, shapeHeld: shapeHeld) ?? last
             processingStroke = true
-            let drawing = PKDrawing(strokes: Array(canvasView.drawing.strokes.dropLast()) + [replacement])
-            let action = shapeHeld ? "Smooth stroke" : "Draw"
-            if let previous = strokeBefore {
+            let previous = strokeBefore
+            let replacedShape = shapeHeld && previewStroke != nil
+            if let replacement = previewStroke, shapeHeld {
+                let drawing = PKDrawing(strokes: Array(canvasView.drawing.strokes.dropLast()) + [replacement])
+                awaitingShapeRender = true
                 canvasView.drawing = drawing
                 if zoomWindow { session.canvas.drawing = drawing }
                 session.changed(drawing)
-                restoreStrokeUndoRegistration()
-                session.registerDrawingUndo(previous, actionName: action)
-                session.refreshUndoAvailability()
+                shapeHeld = false; shapeAdjustment = nil; heldStroke = nil; lastAdjustmentPoint = nil
+                previewStroke = nil
+            } else {
+                // Never reassign the drawing at pen-up: even identical geometry
+                // invalidates PencilKit's renderer and interrupts its live stroke.
+                if zoomWindow { session.canvas.drawing = canvasView.drawing }
+                session.changed(canvasView.drawing)
             }
-            container?.clearShapePreview()
+            restoreStrokeUndoRegistration()
+            if replacedShape, let previous {
+                session.registerDrawingUndo(previous, actionName: "Draw")
+                updateUndoAvailability()
+            }
             processingStroke = false
         }
     }
@@ -286,8 +383,31 @@ struct WritingCanvas: UIViewRepresentable {
 // PencilKit owns the zoom so strokes are rerendered rather than magnifying a transformed canvas.
 final class PageScrollView: UIView {
     let canvas: PKCanvasView
+    private let eraserCursor = CAShapeLayer()
+    var eraserCursorEnabled = false { didSet { if !eraserCursorEnabled { showEraserCursor(at: nil) } } }
+    var eraserCursorWidth: CGFloat = 24
+    func showEraserCursor(at point: CGPoint?) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard eraserCursorEnabled, let point else { eraserCursor.path = nil; return }
+        if eraserCursor.superlayer == nil {
+            eraserCursor.fillColor = UIColor.white.withAlphaComponent(0.12).cgColor
+            eraserCursor.strokeColor = UIColor.darkGray.cgColor
+            eraserCursor.lineWidth = 1.5
+            eraserCursor.shadowColor = UIColor.white.cgColor
+            eraserCursor.shadowOpacity = 1; eraserCursor.shadowRadius = 1; eraserCursor.shadowOffset = .zero
+            layer.addSublayer(eraserCursor)
+        }
+        let diameter = max(6, eraserCursorWidth * canvas.zoomScale)
+        eraserCursor.path = CGPath(ellipseIn: CGRect(x: point.x - diameter / 2, y: point.y - diameter / 2,
+                                                    width: diameter, height: diameter), transform: nil)
+    }
+    @objc private func eraserHovered(_ gesture: UIHoverGestureRecognizer) {
+        showEraserCursor(at: gesture.state == .began || gesture.state == .changed ? gesture.location(in: self) : nil)
+    }
     let paper = TiledPaperView()
     let compositedInk = TiledPaperView()
+    let liveInk = LiveInkPreview()
     private var drawingActive = false
     private var usesCompositedInk = false
     private var compositeContent: (NotePage, PageArtwork?, PKDrawing)?
@@ -295,7 +415,7 @@ final class PageScrollView: UIView {
     var shapePreviewActive: Bool { previewPageID != nil }
     func configureCompositedInk(page: NotePage, artwork: PageArtwork?, drawing: PKDrawing) {
         compositeContent = (page, artwork, drawing)
-        if previewPageID != nil && previewPageID != page.id { previewPageID = nil }
+        if previewPageID != nil && previewPageID != page.id { clearShapePreview() }
         usesCompositedInk = page.pdfIndex != nil && (drawing.strokes.contains { $0.ink.inkType == .marker } || page.elements?.contains { $0.kind == .highlight } == true)
         if usesCompositedInk && !shapePreviewActive {
             var page = page; page.elements?.removeAll { $0.kind == .stickyNote }
@@ -304,20 +424,28 @@ final class PageScrollView: UIView {
         updateCompositeVisibility()
     }
     func showShapePreview(page: NotePage, artwork: PageArtwork?, drawing: PKDrawing) {
+        showLiveStroke(page: page, artwork: artwork, previous: PKDrawing(strokes: Array(drawing.strokes.dropLast())), stroke: drawing.strokes.last)
+    }
+    func showLiveStroke(page: NotePage, artwork: PageArtwork?, previous: PKDrawing, stroke: PKStroke?) {
+        if previewPageID == nil {
+            liveInk.frame = bounds
+            liveInk.begin(page: page, artwork: artwork, previous: previous, canvas: canvas)
+        }
         previewPageID = page.id
-        var page = page; page.elements?.removeAll { $0.kind == .stickyNote }
-        compositedInk.configure(page: page, artwork: artwork, drawing: drawing)
+        liveInk.stroke = stroke
+        liveInk.isHidden = false
         updateCompositeVisibility()
     }
     func clearShapePreview() {
         guard shapePreviewActive else { return }
         previewPageID = nil
+        liveInk.isHidden = true; liveInk.clear()
         if let (page, artwork, drawing) = compositeContent { configureCompositedInk(page: page, artwork: artwork, drawing: drawing) }
         else { updateCompositeVisibility() }
     }
     func setDrawingActive(_ active: Bool) { drawingActive = active; updateCompositeVisibility() }
     private func updateCompositeVisibility() {
-        compositedInk.isHidden = (!shapePreviewActive && (!usesCompositedInk || drawingActive)) || imageViews.contains { $0.showsHandles }
+        compositedInk.isHidden = shapePreviewActive || !usesCompositedInk || drawingActive || imageViews.contains { $0.showsHandles }
     }
     private var imageViews: [ImageHandlesView] = []
     private var imagePage: NotePage?
@@ -358,20 +486,66 @@ final class PageScrollView: UIView {
     private var noteViews: [StickyNoteControl] = []
     private var notesPage: NotePage?
     private var selectionView: PageSelectionView?
+    private(set) var selectionPreview: SelectionDragPreview?
+    private var selectionCommitFinished = false
+    private var selectionRendered = false
+    private var selectionCommitting = false
+    private var selectionPageID: UUID?
+
+    func clearSelectionPreview() {
+        selectionPreview?.removeFromSuperview(); selectionPreview = nil
+        selectionCommitFinished = false; selectionRendered = false; selectionCommitting = false
+        selectionView?.isUserInteractionEnabled = true
+    }
+    func selectionDidRender() {
+        guard selectionCommitting else { return }
+        selectionRendered = true
+        if selectionCommitFinished { clearSelectionPreview() }
+    }
+
     private let searchLayer = CAShapeLayer()
     private var searchRects: [CGRect] = []
     func showSearchHighlights(_ rects: [CGRect]) { guard searchRects != rects else { return }; searchRects = rects; alignBackground() }
-    func configureSelection(_ enabled: Bool, immediate: Bool, shape: EditorToolSettings.LassoShape = .freeform, moved: ((UIBezierPath, CGPoint) -> Void)? = nil, selected: ((CGRect, UIBezierPath, PageSelectionAction) -> Void)?) {
+    func configureSelection(_ enabled: Bool, session: EditorSession? = nil, immediate: Bool, shape: EditorToolSettings.LassoShape = .freeform, moved: ((UIBezierPath, CGPoint) async -> Bool)? = nil, selected: ((CGRect, UIBezierPath, PageSelectionAction) -> Void)?) {
+        if !enabled || selectionPageID != session?.page?.id {
+            clearSelectionPreview(); selectionView?.clearSelection()
+        }
+        selectionPageID = session?.page?.id
         if !enabled { selectionView?.removeFromSuperview(); selectionView = nil; return }
         if selectionView == nil { let overlay = PageSelectionView(); selectionView = overlay; addSubview(overlay) }
         selectionView?.frame = bounds
         selectionView?.immediate = immediate
         selectionView?.shape = shape
+        selectionView?.moveBegan = { [weak self, weak session] path in
+            guard let self, let session, let page = session.page else { return }
+            self.clearSelectionPreview()
+            let snapshot = SelectionMoveSnapshot(page: page, drawing: self.canvas.drawing,
+                                                 path: self.logicalPath(path), settings: session.toolSettings)
+            guard !snapshot.isEmpty, self.canvas.zoomScale > 0 else { return }
+            let preview = SelectionDragPreview(frame: self.bounds, page: page, artwork: session.artwork,
+                                               drawing: self.canvas.drawing, snapshot: snapshot,
+                                               zoom: self.canvas.zoomScale, offset: self.canvas.contentOffset)
+            self.selectionPreview = preview
+            if let overlay = self.selectionView { self.insertSubview(preview, belowSubview: overlay) }
+        }
+        selectionView?.moveChanged = { [weak self] delta in self?.selectionPreview?.move(by: delta) ?? .zero }
+        selectionView?.moveCancelled = { [weak self] in self?.clearSelectionPreview() }
         selectionView?.moved = moved.map { moved in
             { [weak self] path, delta in
                 guard let self else { return }
                 let pagePath = self.logicalPath(path)
-                moved(pagePath, CGPoint(x: delta.x / self.canvas.zoomScale, y: delta.y / self.canvas.zoomScale))
+                let logicalDelta = CGPoint(x: delta.x / self.canvas.zoomScale, y: delta.y / self.canvas.zoomScale)
+                let preview = self.selectionPreview
+                self.selectionCommitting = true; self.selectionRendered = false
+                self.selectionView?.isUserInteractionEnabled = false
+                Task { @MainActor [weak self] in
+                    let success = await moved(pagePath, logicalDelta)
+                    guard let self, self.selectionPreview === preview else { return }
+                    self.selectionCommitFinished = true
+                    if !success || logicalDelta == .zero || preview?.snapshot.ink.strokes.isEmpty != false || self.selectionRendered {
+                        self.clearSelectionPreview()
+                    }
+                }
             }
         }
         selectionView?.pasteMenuRequested = { [weak self] point in
@@ -436,7 +610,9 @@ final class PageScrollView: UIView {
         removeGestureRecognizer(zoomGesture)
         if canvas.superview === self { canvas.pinchGestureRecognizer?.isEnabled = true }
         touchObserver.erased = nil; touchObserver.held = nil; touchObserver.beganStroke = nil; touchObserver.holdCancelled = nil; touchObserver.cancelledStroke = nil
-        clearShapePreview()
+        touchObserver.sampled = nil; touchObserver.adjustedShape = nil; touchObserver.eraserPointer = nil
+        showEraserCursor(at: nil)
+        clearShapePreview(); clearSelectionPreview()
     }
     var fingerDrawing = false {
         didSet {
@@ -536,6 +712,9 @@ final class PageScrollView: UIView {
     init(canvas: PKCanvasView) {
         self.canvas = canvas
         super.init(frame: .zero)
+        let hover = UIHoverGestureRecognizer(target: self, action: #selector(eraserHovered(_:)))
+        hover.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        addGestureRecognizer(hover)
         NotificationCenter.default.addObserver(self, selector: #selector(windowBecameKey(_:)), name: UIWindow.didBecomeKeyNotification, object: nil)
         backgroundColor = .secondarySystemBackground
         clipsToBounds = true
@@ -558,6 +737,7 @@ final class PageScrollView: UIView {
         canvas.accessibilityIdentifier = "editor.canvas"
         addSubview(canvas)
         compositedInk.isHidden = true; addSubview(compositedInk)
+        liveInk.isHidden = true; addSubview(liveInk)
         canvas.addGestureRecognizer(touchObserver)
         canvas.panGestureRecognizer.require(toFail: touchObserver)
         backgroundTap.addTarget(self, action: #selector(tappedBackground(_:)))
@@ -672,4 +852,62 @@ extension PageScrollView: UIGestureRecognizerDelegate {
         return true
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+}
+
+// The page is captured once; only the current stroke is rasterized on display frames.
+final class LiveInkPreview: UIView {
+    var stroke: PKStroke? { didSet { setNeedsDisplay() } }
+    private var background: UIImage?
+    private var foreground: UIImage?
+    private var visibleRect = CGRect.zero
+    private var zoom: CGFloat = 1
+    private var offset = CGPoint.zero
+    private var multiply = false
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false; isOpaque = false
+        contentMode = .redraw
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func begin(page: NotePage, artwork: PageArtwork?, previous: PKDrawing, canvas: PKCanvasView) {
+        zoom = max(0.01, canvas.zoomScale); offset = canvas.contentOffset
+        visibleRect = CGRect(x: offset.x / zoom, y: offset.y / zoom, width: bounds.width / zoom, height: bounds.height / zoom)
+            .intersection(CGRect(origin: .zero, size: PageRenderer.size(page)))
+        multiply = artwork?.pdfPage != nil && (canvas.tool as? PKInkingTool)?.inkType == .marker
+        guard bounds.width > 0, bounds.height > 0, !visibleRect.isNull else { return }
+        var page = page; page.elements?.removeAll { $0.kind == .stickyNote }
+        let format = UIGraphicsImageRendererFormat(); format.scale = min(2, contentScaleFactor); format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: bounds.size, format: format)
+        var basePage = page
+        if multiply { basePage.elements?.removeAll { $0.kind != .highlight }; basePage.text = nil }
+        let baseDrawing = multiply ? PKDrawing(strokes: previous.strokes.filter { $0.ink.inkType == .marker }) : previous
+        background = renderer.image { output in
+            let context = output.cgContext
+            context.translateBy(x: -offset.x, y: -offset.y); context.scaleBy(x: zoom, y: zoom)
+            context.clip(to: visibleRect)
+            PageRenderer.composite(basePage, data: artwork?.data, drawing: baseDrawing, resources: artwork?.resources ?? [:],
+                                   context: context, pdfPage: artwork?.pdfPage, images: artwork?.images ?? [:],
+                                   inkScale: zoom * format.scale, inkRect: visibleRect)
+        }
+        foreground = multiply ? renderer.image { output in
+            let context = output.cgContext
+            context.translateBy(x: -offset.x, y: -offset.y); context.scaleBy(x: zoom, y: zoom)
+            context.clip(to: visibleRect)
+            PageRenderer.elements(page, resources: artwork?.resources ?? [:], context: context, images: artwork?.images ?? [:], drewPDF: true)
+            PKDrawing(strokes: previous.strokes.filter { $0.ink.inkType != .marker })
+                .paperImage(from: visibleRect, scale: zoom * format.scale).draw(in: visibleRect)
+        } : nil
+    }
+    func clear() { background = nil; foreground = nil; stroke = nil }
+    override func draw(_ rect: CGRect) {
+        background?.draw(in: bounds)
+        defer { foreground?.draw(in: bounds) }
+        guard let stroke, !visibleRect.isNull, !visibleRect.isEmpty else { return }
+        let inkRect = stroke.renderBounds.intersection(visibleRect)
+        guard !inkRect.isNull, !inkRect.isEmpty else { return }
+        let screenRect = CGRect(x: inkRect.minX * zoom - offset.x, y: inkRect.minY * zoom - offset.y,
+                                width: inkRect.width * zoom, height: inkRect.height * zoom)
+        PKDrawing(strokes: [stroke]).paperImage(from: inkRect, scale: zoom * min(2, contentScaleFactor))
+            .draw(in: screenRect, blendMode: multiply && stroke.ink.inkType == .marker ? .multiply : .normal, alpha: 1)
+    }
 }

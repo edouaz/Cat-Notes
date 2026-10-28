@@ -12,14 +12,21 @@ A native, open-source notebook for iPad and iPhone, built with SwiftUI, PencilKi
 
 ![OpenNotes custom editor on iPad](docs/assets/editor.png)
 
-## What you can try
+## Current source experience
 
-- Handwriting with pen, pencil and highlighter; eraser, lasso, colors and width controls.
-- PDF import, annotation and PDF text search.
-- Notebooks, folders, favorites, recoverable trash and multiple open tabs.
-- Paper templates, page thumbnails, images, text and sticky notes.
-- Native `.catnote` backup and PDF export; an iOS share extension.
-- Local storage with atomic writes, a metadata backup and explicit save errors.
+The app has a simple notebook library and tabs for keeping several notebooks open. Open notebooks and the active tab are restored on launch.
+
+- Apple Pencil writing with pen, highlighter, eraser and lasso, plus undo and redo.
+- Tap the selected tool again for color, width, pen presets and selection options. On iPadOS 17+, choose ballpoint, fountain or brush ink, switch to constant-width writing, or use a round highlighter without Pencil tilt.
+- Move selected ink and attachments with a live preview. Whole-stroke erasing shows a tip cursor, including Pencil hover on supported iPads.
+- Add pages directly; browse and reorder pages from the page counter.
+- Paper templates, search, PDF export and native `.catnote` backups in the notebook menu.
+- PDF import, folders, favorites and recoverable Trash in the library menu.
+- Existing notebook ink and attachments remain compatible. Local storage, autosave and explicit save errors are retained.
+
+The permanent library sidebar, toolbar customization, and large insertion menus have been removed from the main experience. Freehand strokes use PencilKit directly, without replacing the live stroke at pen-up. Attachment editing is available for pages that already contain attachments. The drawing engine and file format remain compatible with earlier notebooks.
+
+The downloadable build and screenshots below describe the older build 9 interface, not this source cleanup.
 
 | Your library | Tune your pen |
 | --- | --- |

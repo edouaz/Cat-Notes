@@ -50,7 +50,7 @@ final class LibraryWorkspaceInteractionTests: XCTestCase {
         let second = try createNotebook()
         renameFromTab(second, to: secondTitle)
         assertTabLayout(id: second, title: secondTitle)
-        screenshot("Multiple distributed tabs with a long title")
+        screenshot("Stable tabs with a long title")
 
         app.buttons["Close \(secondTitle)"].tap()
         waitUntilGone(app.buttons["workspace.options.\(second)"])
@@ -115,17 +115,8 @@ final class LibraryWorkspaceInteractionTests: XCTestCase {
         XCTAssertLessThanOrEqual(tab.frame.maxX, arrow.frame.minX + 1)
         XCTAssertLessThanOrEqual(arrow.frame.maxX, close.frame.minX + 1)
         let width = close.frame.maxX - tab.frame.minX
-        let count = options.count
-        let available = strip.frame.width - 8
-        if count == 1 {
-            XCTAssertLessThanOrEqual(width, available / 2 + 1)
-        } else if CGFloat(count) * 180 + CGFloat(count - 1) * 4 <= available {
-            XCTAssertEqual(width * CGFloat(count) + CGFloat(count - 1) * 4, available, accuracy: 3,
-                           "Tabs that fit on screen must use the full width")
-        } else {
-            XCTAssertGreaterThanOrEqual(width, 179)
-            XCTAssertGreaterThan(width * CGFloat(count) + CGFloat(count - 1) * 4, available)
-        }
+        XCTAssertEqual(width, min(240, strip.frame.width - 8), accuracy: 2,
+                       "Tab width stays stable as other documents open and close")
     }
 
     private func returnToLibrary() {

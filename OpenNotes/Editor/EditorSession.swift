@@ -65,7 +65,7 @@ final class EditorSession: ObservableObject {
     }
     var documentInkWidth: Double { (tool as? PKInkingTool).map { Double($0.width) } ?? inkWidth }
     var documentInkWidthRange: ClosedRange<Double> {
-        let type: PKInk.InkType = selectedTool == .marker ? .marker : selectedTool == .pencil ? .pencil : .pen
+        let type = inkingType
         let factor = selectedTool == .marker ? 4.0 : 1.0
         let minimum = max(DrawingToolPreset.minimumWidth * factor, Double(type.validWidthRange.lowerBound))
         let maximum = min(DrawingToolPreset.maximumWidth * factor, Double(type.validWidthRange.upperBound))
@@ -76,13 +76,27 @@ final class EditorSession: ObservableObject {
         let range = documentInkWidthRange
         inkWidth = min(range.upperBound, max(range.lowerBound, width)) / (selectedTool == .marker ? 4 : 1)
     }
+    // Use native ink types so the live stroke and the saved stroke remain identical.
+    var inkingType: PKInk.InkType {
+        if selectedTool == .pencil { return .pencil }
+        if #available(iOS 17.0, *) {
+            if selectedTool == .marker { return toolSettings.markerTiltEnabled == false ? .monoline : .marker }
+            if !toolSettings.penPressureEnabled { return .monoline }
+            return toolSettings.penStyle == .fountain || selectedTool == .fountainPen ? .fountainPen : .pen
+        }
+        return selectedTool == .marker ? .marker : .pen
+    }
     var tool: PKTool {
         switch selectedTool {
-        case .eraser: return PKEraserTool(.vector)
+        case .eraser:
+            let type: PKEraserTool.EraserType = toolSettings.eraserMode == .pixel ? .bitmap : .vector
+            if #available(iOS 16.4, *) { return PKEraserTool(type, width: toolSettings.eraserWidth) }
+            return PKEraserTool(type)
         case .lasso: return PKLassoTool()
-        case .marker: return PKInkingTool(.marker, color: paperInkColor, width: inkWidth * 4)
-        case .pencil: return PKInkingTool(.pencil, color: paperInkColor, width: inkWidth)
-        default: return PKInkingTool(.pen, color: paperInkColor, width: inkWidth)
+        default:
+            let roundHighlighter = selectedTool == .marker && toolSettings.markerTiltEnabled == false
+            let color = roundHighlighter ? paperInkColor.withAlphaComponent(0.3) : paperInkColor
+            return PKInkingTool(inkingType, color: color, width: inkWidth * (selectedTool == .marker ? 4 : 1))
         }
     }
     let store: LibraryStore

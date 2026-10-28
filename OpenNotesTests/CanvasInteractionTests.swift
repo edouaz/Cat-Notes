@@ -178,9 +178,11 @@ final class CanvasInteractionTests: XCTestCase {
     func testFilteredSelectionUndoRedoAndReopenPreserveImagesAndStickyNotes() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: directory.lastPathComponent))
+        defer { preferences.removePersistentDomain(forName: directory.lastPathComponent) }
         let store = LibraryStore(root: directory); await store.load()
         let created = await store.create(); let id = try XCTUnwrap(created)
-        let session = EditorSession(store: store, noteID: id); await session.open()
+        let session = EditorSession(store: store, noteID: id, preferences: preferences); await session.open()
         let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 50)).image { context in UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 50)) }
         await session.insertImage(image)
         let sticky = PageElement(kind: .stickyNote, x: 30, y: 40, width: 180, height: 100, text: "Conserver", collapsed: true)
@@ -204,7 +206,7 @@ final class CanvasInteractionTests: XCTestCase {
         XCTAssertTrue(undo.canRedo); undo.redo()
         XCTAssertEqual(session.page?.elements?.first { $0.kind == .image }?.x, original.x + 10)
         let saved = await session.flush(); XCTAssertTrue(saved)
-        let reopened = EditorSession(store: store, noteID: id); await reopened.open(pageID)
+        let reopened = EditorSession(store: store, noteID: id, preferences: preferences); await reopened.open(pageID)
         XCTAssertEqual(reopened.page?.elements?.first { $0.kind == .image }?.x, original.x + 10)
         XCTAssertEqual(reopened.page?.elements?.first { $0.id == sticky.id }, sticky)
         XCTAssertNotNil(reopened.page?.elements?.first { $0.kind == .image }?.resource.flatMap { reopened.resources[$0] })
@@ -246,7 +248,8 @@ final class CanvasInteractionTests: XCTestCase {
         view.configureCompositedInk(page: page, artwork: artwork, drawing: canvas.drawing)
         view.setDrawingActive(true)
         view.showShapePreview(page: page, artwork: artwork, drawing: PKDrawing(strokes: [stroke([CGPoint(x: 20, y: 100), CGPoint(x: 180, y: 100)])]))
-        XCTAssertTrue(view.shapePreviewActive); XCTAssertFalse(view.compositedInk.isHidden)
+        XCTAssertTrue(view.shapePreviewActive); XCTAssertFalse(view.liveInk.isHidden)
+        XCTAssertTrue(view.compositedInk.isHidden)
         XCTAssertEqual(canvas.drawing.dataRepresentation(), original, "The clean preview must not write into the live PencilKit drawing")
         view.clearShapePreview()
         XCTAssertFalse(view.shapePreviewActive); XCTAssertTrue(view.compositedInk.isHidden)
@@ -258,6 +261,80 @@ final class CanvasInteractionTests: XCTestCase {
         observer.holdCancelled = { cancelled += 1 }; observer.pageID = UUID(); observer.pageID = UUID()
         XCTAssertEqual(cancelled, 2)
     }
+    func testHeldLineAdjustsSurvivesJitterAndCommitsExactlyThePreview() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = LibraryStore(root: root); await store.load()
+        let created = await store.create(); let id = try XCTUnwrap(created)
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: id.uuidString))
+        defer { preferences.removePersistentDomain(forName: id.uuidString) }
+        let session = EditorSession(store: store, noteID: id, preferences: preferences); await session.open()
+        session.selectedTool = .pen; session.canvas.tool = session.tool
+        let page = try XCTUnwrap(session.page)
+        let coordinator = WritingCanvas.Coordinator(session: session, zoomWindow: false)
+        let view = PageScrollView(canvas: session.canvas)
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        coordinator.container = view; coordinator.pageID = page.id
+        let raw = stroke([CGPoint(x: 30, y: 40), CGPoint(x: 100, y: 43), CGPoint(x: 200, y: 40)])
+        coordinator.canvasViewDidBeginUsingTool(session.canvas)
+        coordinator.previewSamples(Array(raw.path))
+        let invalidations = view.compositedInk.invalidationCount
+        coordinator.previewHeldShape(raw.path.map(\.location))
+        XCTAssertTrue(coordinator.shapeHeld)
+        coordinator.adjustHeldShape(CGPoint(x: 30, y: 210))
+        let preview = try XCTUnwrap(view.liveInk.stroke)
+        XCTAssertEqual(preview.path.first?.location, CGPoint(x: 30, y: 40))
+        XCTAssertEqual(preview.path.last?.location, CGPoint(x: 30, y: 210))
+        coordinator.adjustHeldShape(CGPoint(x: 31, y: 211))
+        XCTAssertTrue(coordinator.shapeHeld, "Release jitter must never restore the freehand stroke")
+        XCTAssertEqual(view.liveInk.stroke?.path.last?.location, preview.path.last?.location)
+        XCTAssertEqual(view.compositedInk.invalidationCount, invalidations, "Moving a held shape must not redraw page tiles")
+        let savedDuringHold = await session.flush(); XCTAssertTrue(savedDuringHold)
+        let duringHold = try await store.disk.read(page.drawingResourceID)
+        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(duringHold)).strokes.last?.path.last?.location, preview.path.last?.location)
+        session.canvas.drawing = PKDrawing(strokes: [raw])
+        coordinator.canvasViewDidEndUsingTool(session.canvas)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(session.canvas.drawing.strokes.last?.path.map(\.location), preview.path.map(\.location))
+        XCTAssertTrue(view.shapePreviewActive, "Keep the held shape visible until PencilKit finishes rendering")
+        coordinator.canvasViewDidFinishRendering(session.canvas)
+        XCTAssertFalse(view.shapePreviewActive)
+        XCTAssertEqual(session.canvas.layer.opacity, 1)
+        let saved = await session.flush(); XCTAssertTrue(saved)
+        let reopened = EditorSession(store: store, noteID: id, preferences: preferences); await reopened.open()
+        XCTAssertEqual(reopened.drawing.strokes.last?.path.map(\.location), preview.path.map(\.location))
+        coordinator.canvasViewDidBeginUsingTool(session.canvas)
+        coordinator.previewSamples(Array(raw.path))
+        XCTAssertEqual(session.drawing.strokes.count, 1, "Observed samples must not create provisional ink")
+        coordinator.canvasViewDidEndUsingTool(session.canvas)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(session.drawing.strokes.count, 1, "Rejected native strokes must not leave saved ghost ink")
+        XCTAssertFalse(view.shapePreviewActive)
+    }
+
+    func testLivePDFMarkerMatchesCommittedColorOverForegroundInk() throws {
+        var page = page(); page.backgroundID = "source.pdf"; page.pdfIndex = 0
+        let pdf = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 300, height: 200)).pdfData { context in
+            context.beginPage(); UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
+            UIColor.black.setFill(); context.fill(CGRect(x: 80, y: 75, width: 40, height: 50))
+        }
+        let path = stroke([CGPoint(x: 150, y: 50), CGPoint(x: 150, y: 150)], width: 20).path
+        let blue = PKStroke(ink: PKInk(.pen, color: .blue), path: path)
+        let marker = stroke([CGPoint(x: 20, y: 100), CGPoint(x: 280, y: 100)], type: .marker, width: 50)
+        let canvas = PKCanvasView(); canvas.tool = PKInkingTool(.marker, color: .yellow, width: 50)
+        let view = LiveInkPreview(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
+        let artwork = PageArtwork(page: page, data: pdf, resources: [:])
+        view.begin(page: page, artwork: artwork, previous: PKDrawing(strokes: [blue]), canvas: canvas)
+        view.stroke = marker
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let live = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { _ in view.draw(view.bounds) }
+        let final = PageRenderer.image(page, data: pdf, drawing: PKDrawing(strokes: [blue, marker]))
+        for point in [CGPoint(x: 50, y: 100), CGPoint(x: 100, y: 100), CGPoint(x: 150, y: 100)] {
+            let observed = try pixel(live, x: Int(point.x), y: Int(point.y))
+            let expected = try pixel(final, x: Int(point.x), y: Int(point.y))
+            for channel in 0..<3 { XCTAssertEqual(Double(observed[channel]), Double(expected[channel]), accuracy: 3) }
+        }
+    }
+
     func testLassoIgnoresErasedHolesAndSelectsIntersectingImageEdges() {
         let ink = PKDrawing(strokes: [stroke([CGPoint(x: 20, y: 100), CGPoint(x: 280, y: 100)])])
         let erased = EraserEditing.erase(ink, along: [CGPoint(x: 150, y: 90), CGPoint(x: 150, y: 110)], width: 50, mode: .pixel)

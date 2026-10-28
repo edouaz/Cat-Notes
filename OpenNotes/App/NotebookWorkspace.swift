@@ -29,16 +29,17 @@ final class NotebookWorkspace: ObservableObject {
         save()
     }
     func close(_ id: UUID) async {
-        guard !switching else { return }
+        guard !switching, let index = tabs.firstIndex(of: id) else { return }
         Diagnostics.shared.record("workspace.change", ["active": active?.uuidString ?? "none"])
         switching = true; defer { switching = false }
         if let session = sessions[id], !(await session.flush()) { error = session.error; return }
         tabs.removeAll { $0 == id }; sessions[id] = nil
-        if active == id { active = tabs.last }
+        if active == id { active = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)] }
         save()
     }
     func restore() async {
-        tabs = (UserDefaults.standard.stringArray(forKey: "openNotebooks") ?? []).compactMap(UUID.init(uuidString:)).filter { store.library.note(id: $0)?.deletedAt == nil && store.library.note(id: $0) != nil }
+        var seen = Set<UUID>()
+        tabs = (UserDefaults.standard.stringArray(forKey: "openNotebooks") ?? []).compactMap(UUID.init(uuidString:)).filter { store.library.note(id: $0)?.deletedAt == nil && store.library.note(id: $0) != nil && seen.insert($0).inserted }
         let selected = UserDefaults.standard.string(forKey: "activeNotebook").flatMap(UUID.init(uuidString:))
         active = selected.flatMap { tabs.contains($0) ? $0 : nil } ?? tabs.last
     }
@@ -57,95 +58,122 @@ final class NotebookWorkspace: ObservableObject {
 
 struct NotebookWorkspaceView: View {
     @ObservedObject var workspace: NotebookWorkspace
-    @ObservedObject private var store: LibraryStore
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var renamedNotebook: UUID?
-    @State private var notebookTitle = ""
-    init(workspace: NotebookWorkspace) {
-        self.workspace = workspace
-        store = workspace.store
-    }
-    private func close(_ id: UUID) {
-        Task { await workspace.close(id); if workspace.active == nil { dismiss() } }
-    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Button { Task { await workspace.returnToLibrary(); if workspace.active == nil { dismiss() } } } label: { Image(systemName: "books.vertical").font(.title3).dynamicTypeSize(...DynamicTypeSize.xxxLarge).frame(width: 44, height: 44) }.accessibilityLabel("Library").accessibilityIdentifier("workspace.library")
-                if sizeClass == .regular && !typeSize.isAccessibilitySize {
-                    GeometryReader { geometry in
-                    ScrollViewReader { reader in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            ForEach(workspace.tabs, id: \.self) { id in
-                                HStack(spacing: 0) {
-                                    Button { Task { await workspace.select(id) } } label: {
-                                        Text(title(id)).font(.subheadline.weight(.semibold)).lineLimit(1)
-                                            .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).frame(minHeight: 44).contentShape(Rectangle())
-                                    }.buttonStyle(.plain).accessibilityAddTraits(workspace.active == id ? .isSelected : [])
-                                    Menu { notebookActions(id) } label: {
-                                        Label("Options for \(title(id))", systemImage: "chevron.down").labelStyle(.iconOnly)
-                                            .font(.caption).frame(width: 44, height: 44).contentShape(Rectangle())
-                                    }.accessibilityIdentifier("workspace.options.\(id.uuidString)")
-                                    closeButton(id)
-                                }.frame(width: OpenNotesStyle.notebookTabWidth(availableWidth: max(0, geometry.size.width - 8), count: workspace.tabs.count)).id(id)
-                                .background(workspace.active == id ? Color(uiColor: .systemBackground) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                                .overlay(alignment: .bottom) { if workspace.active == id { Rectangle().fill(OpenNotesStyle.accent).frame(height: 2).padding(.horizontal, 12) } }
-                            }
-                        }.padding(.horizontal, 4).padding(.vertical, 2)
-                    }
-                    .task(id: "\(workspace.active?.uuidString ?? "")-\(workspace.tabs.count)-\(geometry.size.width)") {
-                        guard let active = workspace.active else { return }
-                        await Task.yield()
-                        guard !Task.isCancelled else { return }
-                        reader.scrollTo(active, anchor: .center)
-                    }
-                    }
-                    }.frame(height: 48)
-                } else {
-                    Menu {
-                        ForEach(workspace.tabs, id: \.self) { id in
-                            Button { Task { await workspace.select(id) } } label: {
-                                Label(title(id), systemImage: workspace.active == id ? "checkmark" : "book.closed")
-                            }
-                        }
-                        if let id = workspace.active { Divider(); notebookActions(id) }
-                    } label: {
-                        HStack { Text(workspace.active.map(title) ?? "Notebook").font(.headline).lineLimit(1); Image(systemName: "chevron.down").font(.caption) }
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                    }.accessibilityLabel("Open notebooks and options")
-                    if let id = workspace.active { closeButton(id) }
-                }
-            }.frame(minHeight: 48).background(Color(uiColor: .secondarySystemBackground))
+            NotebookTabs(workspace: workspace, store: workspace.store) { dismiss() }
             if let id = workspace.active {
-                EditorScreen(store: workspace.store, noteID: id, session: workspace.session(id)).id(id)
-            }
-        }.navigationBarBackButtonHidden().toolbar(.hidden, for: .navigationBar)
-            .alert("Could not save", isPresented: Binding(get: { workspace.error != nil }, set: { if !$0 { workspace.error = nil } })) { Button("OK") { workspace.error = nil } } message: { Text(workspace.error ?? "") }
-            .alert("Rename notebook", isPresented: Binding(get: { renamedNotebook != nil }, set: { if !$0 { renamedNotebook = nil } })) {
-                TextField("Title", text: $notebookTitle)
-                Button("Save") {
-                    if let id = renamedNotebook {
-                        store.update(id) { $0.title = notebookTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled" : notebookTitle }
+                EditorScreen(store: workspace.store, noteID: id, session: workspace.session(id)) {
+                    Task {
+                        await workspace.returnToLibrary()
+                        if workspace.active == nil { dismiss() }
                     }
-                    renamedNotebook = nil
-                }
-                Button("Cancel", role: .cancel) { renamedNotebook = nil }
+                }.id(id)
             }
+        }
+        .navigationBarBackButtonHidden()
+        .toolbar(.hidden, for: .navigationBar)
+        .alert("Could not save", isPresented: Binding(
+            get: { workspace.error != nil },
+            set: { if !$0 { workspace.error = nil } }
+        )) {
+            Button("OK") { workspace.error = nil }
+        } message: {
+            Text(workspace.error ?? "")
+        }
     }
-    private func title(_ id: UUID) -> String { store.library.note(id: id)?.title ?? "Notebook" }
-    private func closeButton(_ id: UUID) -> some View {
-        Button { close(id) } label: {
-            Label("Close \(title(id))", systemImage: "xmark").labelStyle(.iconOnly)
-                .font(.body).dynamicTypeSize(...DynamicTypeSize.xxxLarge).frame(width: 44, height: 44).contentShape(Rectangle())
-        }.accessibilityHint("Closes the tab and keeps the notebook")
+}
+
+private struct NotebookTabs: View {
+    @ObservedObject var workspace: NotebookWorkspace
+    @ObservedObject var store: LibraryStore
+    let didCloseLastTab: () -> Void
+    @State private var renamedID: UUID?
+    @State private var title = ""
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { reader in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(workspace.tabs, id: \.self) { id in
+                            NotebookTab(
+                                title: store.library.note(id: id)?.title ?? "Notebook",
+                                id: id,
+                                selected: workspace.active == id,
+                                select: { Task { await workspace.select(id) } },
+                                rename: {
+                                    title = store.library.note(id: id)?.title ?? ""
+                                    renamedID = id
+                                },
+                                close: {
+                                    Task {
+                                        await workspace.close(id)
+                                        if workspace.active == nil { didCloseLastTab() }
+                                    }
+                                }
+                            )
+                            .frame(width: OpenNotesStyle.notebookTabWidth(availableWidth: max(0, geometry.size.width - 16), count: workspace.tabs.count))
+                            .id(id)
+                        }
+                    }.padding(.horizontal, 8).padding(.vertical, 4)
+                }
+                .task(id: "\(workspace.active?.uuidString ?? "")-\(geometry.size.width)") {
+                    await Task.yield()
+                    if let active = workspace.active, !Task.isCancelled { reader.scrollTo(active) }
+                }
+            }
+        }
+        .frame(height: 52)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .overlay(alignment: .bottom) { Divider() }
+        .alert("Rename notebook", isPresented: Binding(
+            get: { renamedID != nil }, set: { if !$0 { renamedID = nil } }
+        )) {
+            TextField("Title", text: $title)
+            Button("Save") {
+                if let id = renamedID {
+                    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    store.update(id) { $0.title = trimmed.isEmpty ? "Untitled" : trimmed }
+                }
+                renamedID = nil
+            }
+            Button("Cancel", role: .cancel) { renamedID = nil }
+        }
     }
-    @ViewBuilder private func notebookActions(_ id: UUID) -> some View {
-        Button("Rename", systemImage: "pencil") { notebookTitle = title(id); renamedNotebook = id }
-        Button(store.library.note(id: id)?.favorite == true ? "Remove from favorites" : "Add to favorites", systemImage: "star") {
-            store.update(id) { $0.favorite = !($0.favorite ?? false) }
+}
+
+private struct NotebookTab: View {
+    let title: String
+    let id: UUID
+    let selected: Bool
+    let select: () -> Void
+    let rename: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: select) {
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.leading, 12).contentShape(Rectangle())
+            }
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("workspace.tab.\(id.uuidString)")
+            Menu { Button("Rename", systemImage: "pencil", action: rename) } label: {
+                Label("Options for \(title)", systemImage: "chevron.down")
+                    .labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(Rectangle())
+            }.accessibilityIdentifier("workspace.options.\(id.uuidString)")
+            Button(action: close) {
+                Label("Close \(title)", systemImage: "xmark")
+                    .labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(Rectangle())
+            }.accessibilityHint("Close the tab and keep the notebook")
+        }
+        .buttonStyle(.plain)
+        .background(selected ? Color(uiColor: .systemBackground) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .bottom) {
+            if selected { Rectangle().fill(OpenNotesStyle.accent).frame(height: 2).padding(.horizontal, 12) }
         }
     }
 }

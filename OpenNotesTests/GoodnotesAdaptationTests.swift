@@ -14,10 +14,11 @@ final class GoodnotesAdaptationTests: XCTestCase {
     func testLegacySettingsAndTextDecodeWithSafeDefaults() throws {
         let encoder = JSONEncoder()
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(EditorToolSettings())) as? [String: Any])
-        for key in ["stabilizationByStyle", "pressureSensitivity", "rulerEnabled", "includeText"] { object.removeValue(forKey: key) }
+        for key in ["stabilizationByStyle", "pressureSensitivity", "pressureEnabled", "tiltEnabled", "rulerEnabled", "includeText"] { object.removeValue(forKey: key) }
         object["stabilization"] = 42
         var settings = try JSONDecoder().decode(EditorToolSettings.self, from: JSONSerialization.data(withJSONObject: object))
         XCTAssertEqual(settings.stabilization(for: .pen), 42)
+        XCTAssertNil(settings.pressureEnabled); XCTAssertNil(settings.tiltEnabled)
         settings.setStabilization(80, for: .pen)
         settings.penStyle = .brush
         XCTAssertEqual(settings.stabilization(for: .pen), 42)
