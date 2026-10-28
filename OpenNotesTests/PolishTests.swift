@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
@@ -9,11 +9,11 @@ final class PolishTests: XCTestCase {
         let store = LibraryStore(root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
         await store.load(); return store
     }
-    private func stroke() -> PKDrawing {
+    private func stroke() -> InkDrawing {
         let points = [CGPoint(x: 30, y: 40), CGPoint(x: 190, y: 240)].enumerated().map { i, p in
-            PKStrokePoint(location: p, timeOffset: Double(i), size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            InkStrokePoint(location: p, timeOffset: Double(i), size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        return PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: Date()))])
+        return InkDrawing(strokes: [InkStroke(ink: InkInk(.pen, color: .black), path: InkStrokePath(controlPoints: points, creationDate: Date()))])
     }
     func testShareStagingIsAtomicPreservesNamesAndCanBeRetried() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -60,7 +60,7 @@ final class PolishTests: XCTestCase {
         XCTAssertEqual(result, view.item)
     }
     func testPagingOnlyUsesSelectedAxisAtFitZoom() {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 600)
         view.pageSize = CGSize(width: 794, height: 1123); view.layoutIfNeeded()
         XCTAssertTrue(view.pageTurn.shouldBegin(velocity: CGPoint(x: -200, y: 0)))
@@ -95,10 +95,10 @@ final class PolishTests: XCTestCase {
         session.canvas.drawing = stroke()
         let before = session.canvas.drawing.dataRepresentation()
         let undo = try XCTUnwrap(session.canvas.undoManager)
-        undo.registerUndo(withTarget: session.canvas) { canvas in canvas.drawing = PKDrawing() }
+        undo.registerUndo(withTarget: session.canvas) { canvas in canvas.drawing = InkDrawing() }
         session.selectedTool = .marker
         try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual((session.canvas.tool as? PKInkingTool)?.inkType, .marker)
+        XCTAssertEqual((session.canvas.tool as? InkInkingTool)?.inkType, .marker)
         XCTAssertEqual(session.canvas.overrideUserInterfaceStyle, .light)
         XCTAssertEqual(session.canvas.drawing.dataRepresentation(), before)
         XCTAssertTrue(session.canvas.undoManager === undo)
@@ -192,7 +192,7 @@ final class PolishTests: XCTestCase {
         await b.value; await c.value
         XCTAssertEqual(session.page?.id, third)
         let bytes = try await store.disk.read(first.drawingResourceID)
-        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(bytes)).strokes.count, 1)
+        XCTAssertEqual(try InkDrawing(data: XCTUnwrap(bytes)).strokes.count, 1)
         XCTAssertFalse(session.busy)
     }
     func testFailedDrawingWriteIsRetriedWithoutLosingInk() async throws {
@@ -210,7 +210,7 @@ final class PolishTests: XCTestCase {
         try FileManager.default.moveItem(at: moved, to: folder)
         let saved = await session.flush(); XCTAssertTrue(saved)
         let bytes = try await store.disk.read(page.drawingResourceID)
-        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(bytes)).strokes.count, 1)
+        XCTAssertEqual(try InkDrawing(data: XCTUnwrap(bytes)).strokes.count, 1)
     }
     func testTabsPreserveSessionsAndClosingSaves() async throws {
         let store = await makeStore()
@@ -225,12 +225,12 @@ final class PolishTests: XCTestCase {
         await model.close(a)
         XCTAssertEqual(model.active, b); XCTAssertEqual(model.tabs, [b])
         let bytes = try await store.disk.read(page.drawingResourceID)
-        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(bytes)).strokes.count, 1)
+        XCTAssertEqual(try InkDrawing(data: XCTUnwrap(bytes)).strokes.count, 1)
         XCTAssertNotNil(store.library.note(id: a))
         await model.close(b)
     }
     func testViewportSurvivesResizeAndReopenAndDoubleTapFits() throws {
-        let canvas = PKCanvasView(), id = UUID(), note = UUID()
+        let canvas = InkCanvasView(), id = UUID(), note = UUID()
         let view = PageScrollView(canvas: canvas)
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 600); view.pageSize = CGSize(width: 794, height: 1123)
         view.restorePosition(id, noteID: note); view.layoutIfNeeded()
@@ -241,7 +241,7 @@ final class PolishTests: XCTestCase {
         XCTAssertEqual(canvas.zoomScale, 2, accuracy: 0.01)
         XCTAssertEqual((canvas.contentOffset.x + 300) / 2, center.x, accuracy: 1)
         XCTAssertEqual((canvas.contentOffset.y + 200) / 2, center.y, accuracy: 1)
-        let reopened = PageScrollView(canvas: PKCanvasView())
+        let reopened = PageScrollView(canvas: InkCanvasView())
         reopened.frame = CGRect(x: 0, y: 0, width: 400, height: 600); reopened.pageSize = view.pageSize
         reopened.restorePosition(id, noteID: note); reopened.layoutIfNeeded()
         XCTAssertEqual(reopened.canvas.zoomScale, 2, accuracy: 0.01)

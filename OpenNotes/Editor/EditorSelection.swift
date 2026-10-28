@@ -1,9 +1,8 @@
-import PencilKit
 import UIKit
 
 @MainActor
 extension EditorSession {
-    func replaceDrawing(_ replacement: PKDrawing, actionName: String) {
+    func replaceDrawing(_ replacement: InkDrawing, actionName: String) {
         let previous = canvas.drawing
         registerDrawingUndo(previous, actionName: actionName)
         canvas.drawing = replacement
@@ -11,7 +10,7 @@ extension EditorSession {
         refreshUndoAvailability()
     }
 
-    func registerDrawingUndo(_ previous: PKDrawing, actionName: String) {
+    func registerDrawingUndo(_ previous: InkDrawing, actionName: String) {
         canvas.undoManager?.registerUndo(withTarget: self) { session in session.replaceDrawing(previous, actionName: actionName) }
         canvas.undoManager?.setActionName(actionName)
     }
@@ -31,9 +30,9 @@ extension EditorSession {
         }
         let strokes = canvas.drawing.strokes.enumerated().map { index, stroke in
             guard snapshot.strokeIndices.contains(index) else { return stroke }
-            return PKDrawing(strokes: [stroke]).transformed(using: CGAffineTransform(translationX: delta.x, y: delta.y)).strokes[0]
+            return InkDrawing(strokes: [stroke]).transformed(using: CGAffineTransform(translationX: delta.x, y: delta.y)).strokes[0]
         }
-        replaceContent(PKDrawing(strokes: strokes), elements: moved, actionName: "Move selection")
+        replaceContent(InkDrawing(strokes: strokes), elements: moved, actionName: "Move selection")
         return await flush()
     }
 
@@ -63,11 +62,11 @@ extension EditorSession {
             }
             updated.append(item)
         }
-        let strokes = drawing.strokes.enumerated().compactMap { index, stroke -> PKStroke? in
+        let strokes = drawing.strokes.enumerated().compactMap { index, stroke -> InkStroke? in
             guard selected[index] else { return stroke }
-            return deleting ? nil : PKDrawing(strokes: [stroke]).transformed(using: transform).strokes.first
+            return deleting ? nil : InkDrawing(strokes: [stroke]).transformed(using: transform).strokes.first
         }
-        replaceContent(PKDrawing(strokes: strokes), elements: updated, actionName: deleting ? "Delete selection" : "Resize selection")
+        replaceContent(InkDrawing(strokes: strokes), elements: updated, actionName: deleting ? "Delete selection" : "Resize selection")
         return await flush()
     }
 }
@@ -76,16 +75,16 @@ extension EditorSession {
 struct SelectionMoveSnapshot {
     let strokeIndices: Set<Int>
     let elementIDs: Set<UUID>
-    let ink: PKDrawing
+    let ink: InkDrawing
     let elements: [PageElement]
     let bounds: CGRect
     let pageSize: CGSize
     var isEmpty: Bool { strokeIndices.isEmpty && elementIDs.isEmpty }
 
-    init(page: NotePage, drawing: PKDrawing, path: UIBezierPath, settings: EditorToolSettings) {
+    init(page: NotePage, drawing: InkDrawing, path: UIBezierPath, settings: EditorToolSettings) {
         let indices = Set(drawing.strokes.indices.filter { settings.includeHandwriting && DocumentClipboard.contains(drawing.strokes[$0], inside: path) })
         strokeIndices = indices
-        ink = PKDrawing(strokes: drawing.strokes.enumerated().filter { indices.contains($0.offset) }.map(\.element))
+        ink = InkDrawing(strokes: drawing.strokes.enumerated().filter { indices.contains($0.offset) }.map(\.element))
         elements = DocumentClipboard.selectedElements(page, inside: path, settings: settings)
         elementIDs = Set(elements.map(\.id))
         var rect = ink.strokes.isEmpty ? CGRect.null : ink.bounds

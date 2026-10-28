@@ -1,5 +1,5 @@
 import XCTest
-import PencilKit
+import UIKit
 import PDFKit
 @testable import OpenNotes
 
@@ -51,10 +51,10 @@ final class StorageAndPDFTests: XCTestCase {
         let source = try await store.disk.read(try XCTUnwrap(page.backgroundID))
         XCTAssertEqual(source, original)
         let points = [CGPoint(x: 50, y: 100), CGPoint(x: 400, y: 300)].enumerated().map { i, p in
-            PKStrokePoint(location: p, timeOffset: Double(i), size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            InkStrokePoint(location: p, timeOffset: Double(i), size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        let stroke = PKStroke(ink: PKInk(.pen, color: .red), path: PKStrokePath(controlPoints: points, creationDate: Date()))
-        let drawing = PKDrawing(strokes: [stroke])
+        let stroke = InkStroke(ink: InkInk(.pen, color: .red), path: InkStrokePath(controlPoints: points, creationDate: Date()))
+        let drawing = InkDrawing(strokes: [stroke])
         try await store.disk.write(drawing.dataRepresentation(), name: page.drawingResourceID)
         let archive = try await store.archive(id)
         let output = input.deletingPathExtension().appendingPathExtension("export.pdf")
@@ -66,11 +66,22 @@ final class StorageAndPDFTests: XCTestCase {
         let blank = PageRenderer.image(page, data: original).pngData()
         XCTAssertNotEqual(exported, blank)
         let persisted = try await store.disk.read(page.drawingResourceID)
-        XCTAssertEqual(try PKDrawing(data: XCTUnwrap(persisted)).strokes.count, 1)
+        XCTAssertEqual(try InkDrawing(data: XCTUnwrap(persisted)).strokes.count, 1)
         let roundtrip = try JSONDecoder().decode(NotebookArchive.self, from: CloudSync.encode(archive))
         let copy = try await store.importArchive(roundtrip)
         XCTAssertNotEqual(id, copy)
         XCTAssertEqual(store.library.pages(in: copy).count, 2)
+    }
+    func testPDFExportRejectsUnsupportedInkInsteadOfWritingBlankPage() async throws {
+        let store = await makeStore()
+        let created = await store.create()
+        let id = try XCTUnwrap(created)
+        var archive = try await store.archive(id)
+        archive.resources[archive.pages[0].drawingResourceID] = Data("legacy or corrupt ink".utf8)
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
+        defer { try? FileManager.default.removeItem(at: output) }
+        XCTAssertThrowsError(try PageRenderer.export(archive, indices: 0...0, output: output))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
     func testCorruptLibraryIsNotSilentlyReset() async throws {
         let store = await makeStore()
@@ -89,7 +100,7 @@ final class StorageAndPDFTests: XCTestCase {
         let id = try XCTUnwrap(created)
         let editor = EditorSession(store: store, noteID: id)
         await editor.open()
-        editor.changed(PKDrawing())
+        editor.changed(InkDrawing())
         XCTAssertTrue(editor.dirty)
         let flushed = await editor.flush()
         XCTAssertTrue(flushed)

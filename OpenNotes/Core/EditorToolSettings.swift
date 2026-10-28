@@ -33,6 +33,8 @@ struct EditorToolSettings: Codable, Equatable {
     }
 
     var penStyle = PenStyle.ballpoint
+    var tipSharpness: Double?
+    var inkPattern: InkPattern?
     var stabilization = 0.0
     // Optional additions preserve decoding of settings saved before the Goodnotes adaptation.
     var stabilizationByStyle: [String: Double]?

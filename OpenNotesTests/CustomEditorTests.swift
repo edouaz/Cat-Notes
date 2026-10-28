@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
@@ -8,7 +8,7 @@ final class CustomEditorTests: XCTestCase {
     func testDoubleTapFitsWidthFromAnyManualZoomThenFitsHeight() {
         for (viewport, page) in [(CGSize(width: 800, height: 500), CGSize(width: 794, height: 1123)),
                                  (CGSize(width: 600, height: 900), CGSize(width: 1000, height: 500))] {
-            let view = PageScrollView(canvas: PKCanvasView())
+            let view = PageScrollView(canvas: InkCanvasView())
             view.frame = CGRect(origin: .zero, size: viewport); view.pageSize = page; view.layoutIfNeeded()
             view.canvas.setZoomScale(2.7, animated: false)
             let point = CGPoint(x: viewport.width * 0.4, y: viewport.height * 0.6)
@@ -23,7 +23,7 @@ final class CustomEditorTests: XCTestCase {
         }
     }
     func testHeightFitAboveNaturalSizeStillAllowsPagingOnLargeIPad() {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 1032, height: 1200)
         view.pageSize = CGSize(width: 794, height: 1123); view.layoutIfNeeded()
         XCTAssertGreaterThan(view.canvas.minimumZoomScale, 1)
@@ -36,10 +36,10 @@ final class CustomEditorTests: XCTestCase {
         XCTAssertEqual(UIColor.label.presetHex, "#000000")
         let color = try XCTUnwrap(UIColor(presetHex: "#315BB1"))
         let points = (0...20).map { index in
-            PKStrokePoint(location: CGPoint(x: 20 + index * 8, y: 50), timeOffset: Double(index) / 20,
+            InkStrokePoint(location: CGPoint(x: 20 + index * 8, y: 50), timeOffset: Double(index) / 20,
                           size: CGSize(width: 12, height: 12), opacity: 1, force: 1, azimuth: 0, altitude: 1)
         }
-        let drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: color), path: PKStrokePath(controlPoints: points, creationDate: Date()))])
+        let drawing = InkDrawing(strokes: [InkStroke(ink: InkInk(.pen, color: color), path: InkStrokePath(controlPoints: points, creationDate: Date()))])
         var light: UIImage!, dark: UIImage!
         let rect = CGRect(x: 0, y: 0, width: 200, height: 100)
         UITraitCollection(userInterfaceStyle: .light).performAsCurrent { light = drawing.paperImage(from: rect, scale: 1) }
@@ -53,7 +53,7 @@ final class CustomEditorTests: XCTestCase {
             context.draw(source, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         }
         for (actual, expected) in zip(pixel.prefix(3), [49, 91, 177]) { XCTAssertEqual(Int(actual), expected, accuracy: 2) }
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.overrideUserInterfaceStyle = .dark
         XCTAssertEqual(view.canvas.traitCollection.userInterfaceStyle, .light)
     }

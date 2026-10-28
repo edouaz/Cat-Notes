@@ -1,6 +1,5 @@
 import UIKit
 import QuartzCore
-import PencilKit
 
 final class TiledPaperView: UIView {
     private let tiles = ImmediatePaperTiles()
@@ -23,7 +22,7 @@ final class TiledPaperView: UIView {
         layer.addSublayer(tiles)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func configure(page: NotePage, artwork: PageArtwork?, drawing: PKDrawing? = nil) {
+    func configure(page: NotePage, artwork: PageArtwork?, drawing: InkDrawing? = nil) {
         guard let artwork else { return }
         if renderer.configure(page: page, artwork: artwork, drawing: drawing) {
             invalidationCount += 1; tiles.setNeedsDisplay()
@@ -59,8 +58,8 @@ final class TiledPaperView: UIView {
 // Tile threads only read immutable artwork; they never draw or query a UIView.
 private final class PaperTileRenderer: NSObject, CALayerDelegate {
     private let lock = NSLock()
-    private var content: (NotePage, PageArtwork, PKDrawing?, Data?)?
-    func configure(page: NotePage, artwork: PageArtwork, drawing: PKDrawing?) -> Bool {
+    private var content: (NotePage, PageArtwork, InkDrawing?, Data?)?
+    func configure(page: NotePage, artwork: PageArtwork, drawing: InkDrawing?) -> Bool {
         let drawingData = drawing?.dataRepresentation()
         lock.lock(); defer { lock.unlock() }
         let changed: Bool

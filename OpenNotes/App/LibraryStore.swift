@@ -1,5 +1,5 @@
 import SwiftUI
-import PencilKit
+import UIKit
 import PDFKit
 
 @MainActor
@@ -53,7 +53,7 @@ final class LibraryStore: ObservableObject {
             var snapshot = initial
             let note = try snapshot.addNote(title: title, folderID: folderID ?? snapshot.folders[0].id)
             let page = snapshot.pages(in: note.id)[0]
-            try await disk.write(PKDrawing().dataRepresentation(), name: page.drawingResourceID)
+            try await disk.write(InkDrawing().dataRepresentation(), name: page.drawingResourceID)
             guard library == initial else { throw CocoaError(.userCancelled) }
             library = snapshot; persist()
             return note.id
@@ -101,7 +101,7 @@ final class LibraryStore: ObservableObject {
             } else {
                 if let after { page = try snapshot.insertPage(after: after) }
                 else { page = try snapshot.appendPage(toNoteID: noteID, template: .blank) }
-                try await disk.write(PKDrawing().dataRepresentation(), name: page.drawingResourceID)
+                try await disk.write(InkDrawing().dataRepresentation(), name: page.drawingResourceID)
             }
             guard library == initial else { throw CocoaError(.userCancelled) }
             library = snapshot; persist(); return page.id
@@ -173,7 +173,7 @@ final class LibraryStore: ObservableObject {
                 page.template = .blank; page.backgroundID = asset; page.pdfIndex = pdf != nil ? index : nil
                 page.width = size.width; page.height = size.height
                 snapshot.pages[snapshot.pages.firstIndex(where: { $0.id == page.id })!] = page
-                try await disk.write(PKDrawing().dataRepresentation(), name: page.drawingResourceID)
+                try await disk.write(InkDrawing().dataRepresentation(), name: page.drawingResourceID)
             }
             guard library == initial else { throw CocoaError(.userCancelled) }
             library = snapshot; persist(); return note.id
@@ -182,7 +182,7 @@ final class LibraryStore: ObservableObject {
     func importArchive(_ archive: NotebookArchive, folderID: UUID? = nil) async throws -> UUID {
         try await Task.detached(priority: .utility) {
             try archive.validate()
-            for page in archive.pages { _ = try PKDrawing(data: archive.resources[page.drawingResourceID]!) }
+            for page in archive.pages { _ = try InkDrawing(data: archive.resources[page.drawingResourceID]!) }
         }.value
         // Imported archives receive fresh identifiers so they can never overwrite a local notebook.
         let initial = library

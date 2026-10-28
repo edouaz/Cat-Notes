@@ -1,39 +1,80 @@
-import PencilKit
 import UIKit
 
-// PKStroke masks preserve the original ink and support a sized pixel eraser on iPadOS 16.0.
 enum EraserEditing {
-    static func erase(_ drawing: PKDrawing, along points: [CGPoint], width: Double, mode: EditorToolSettings.EraserMode) -> PKDrawing {
-        guard let first = points.first, width.isFinite, width > 0,
+    static func erase(_ drawing: InkDrawing, along points: [CGPoint], width: Double, mode: EditorToolSettings.EraserMode) -> InkDrawing {
+        guard !points.isEmpty, width.isFinite, width > 0,
               points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return drawing }
-        let sweep: CGPath
-        if points.count == 1 {
-            sweep = CGPath(ellipseIn: CGRect(x: first.x - width / 2, y: first.y - width / 2, width: width, height: width), transform: nil)
-        } else {
-            let center = CGMutablePath(); center.move(to: first)
-            for point in points.dropFirst() { center.addLine(to: point) }
-            sweep = center.copy(strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 1)
+        let radius = CGFloat(width / 2)
+        let sweep = CGMutablePath()
+        sweep.move(to: points[0])
+        for point in points.dropFirst() { sweep.addLine(to: point) }
+        let area: CGPath = points.count == 1
+            ? CGPath(ellipseIn: CGRect(x: points[0].x - radius, y: points[0].y - radius, width: width, height: width), transform: nil)
+            : sweep.copy(strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 1)
+        let strokes = drawing.strokes.flatMap { stroke -> [InkStroke] in
+            guard stroke.renderBounds.intersects(area.boundingBoxOfPath) else { return [stroke] }
+            var transform = stroke.transform
+            guard let paint = stroke.paintedPath.copy(using: &transform), paint.intersects(area) else { return [stroke] }
+            if mode == .stroke || (mode == .intelligent && max(stroke.renderBounds.width, stroke.renderBounds.height) <= width) { return [] }
+            let scale = max(hypot(transform.a, transform.b), hypot(transform.c, transform.d))
+            func erased(_ sample: InkStrokePoint) -> Bool {
+                distance(sample.location.applying(transform), to: points) <= radius + max(sample.size.width, sample.size.height) * scale / 2
+            }
+            var fragments: [InkStroke] = []
+            for piece in stroke.paintedPaths() {
+                guard !piece.isEmpty else { continue }
+                let path = InkStrokePath(controlPoints: piece, creationDate: stroke.path.creationDate)
+                let samples = Array(path.interpolatedPoints(by: .distance(0.5)))
+                guard let first = samples.first else { continue }
+                var kept: [InkStrokePoint] = erased(first) ? [] : [first]
+                func finish() {
+                    guard !kept.isEmpty else { return }
+                    var fragment = stroke
+                    fragment.id = UUID()
+                    fragment.path = InkStrokePath(controlPoints: kept, creationDate: stroke.path.creationDate)
+                    fragment.rawSamples = kept
+                    // Painted pieces already contain the original pattern and taper geometry.
+                    if var style = fragment.style { style.pattern = .solid; style.sharpness = 0; fragment.style = style }
+                    fragments.append(fragment)
+                    kept = []
+                }
+                for pair in zip(samples, samples.dropFirst()) {
+                    let beforeErased = erased(pair.0), afterErased = erased(pair.1)
+                    if beforeErased != afterErased {
+                        var low: CGFloat = 0, high: CGFloat = 1
+                        for _ in 0..<12 {
+                            let middle = (low + high) / 2
+                            if erased(interpolate(pair.0, pair.1, middle)) == beforeErased { low = middle } else { high = middle }
+                        }
+                        let boundary = interpolate(pair.0, pair.1, beforeErased ? high : low)
+                        if beforeErased { kept = [boundary, pair.1] }
+                        else { kept.append(boundary); finish() }
+                    } else if !afterErased { kept.append(pair.1) }
+                }
+                finish()
+            }
+            return fragments
         }
-        let strokes = drawing.strokes.compactMap { stroke -> PKStroke? in
-            guard stroke.renderBounds.intersects(sweep.boundingBoxOfPath), hit(stroke, sweep: sweep, radius: width / 2) else { return stroke }
-            if mode == .stroke || (mode == .intelligent && max(stroke.renderBounds.width, stroke.renderBounds.height) <= width) { return nil }
-            var inverse = stroke.transform.inverted()
-            guard let localSweep = sweep.copy(using: &inverse) else { return stroke }
-            let originalMask = stroke.mask?.cgPath ?? CGPath(rect: stroke.renderBounds.applying(inverse).insetBy(dx: -2, dy: -2), transform: nil)
-            let mask = originalMask.subtracting(localSweep, using: stroke.mask?.usesEvenOddFillRule == true ? .evenOdd : .winding)
-            guard !mask.isEmpty else { return nil }
-            return PKStroke(ink: stroke.ink, path: stroke.path, transform: stroke.transform, mask: UIBezierPath(cgPath: mask), randomSeed: stroke.randomSeed)
-        }
-        return PKDrawing(strokes: strokes)
+        return InkDrawing(strokes: strokes)
     }
 
-    private static func hit(_ stroke: PKStroke, sweep: CGPath, radius: CGFloat) -> Bool {
-        stroke.path.interpolatedPoints(by: .distance(max(1, min(4, radius / 3)))).contains { sample in
-            let ellipse = CGPath(ellipseIn: CGRect(x: sample.location.x - sample.size.width / 2,
-                y: sample.location.y - sample.size.height / 2, width: sample.size.width, height: sample.size.height), transform: nil)
-            let visible = stroke.mask.map { ellipse.intersection($0.cgPath, using: $0.usesEvenOddFillRule ? .evenOdd : .winding) } ?? ellipse
-            var transform = stroke.transform
-            return visible.copy(using: &transform)?.intersects(sweep) == true
+    static func interpolate(_ a: InkStrokePoint, _ b: InkStrokePoint, _ t: CGFloat) -> InkStrokePoint {
+        InkStrokePoint(location: CGPoint(x: a.location.x + (b.location.x - a.location.x) * t, y: a.location.y + (b.location.y - a.location.y) * t),
+                       timeOffset: a.timeOffset + (b.timeOffset - a.timeOffset) * Double(t),
+                       size: CGSize(width: a.size.width + (b.size.width - a.size.width) * t, height: a.size.height + (b.size.height - a.size.height) * t),
+                       opacity: a.opacity + (b.opacity - a.opacity) * t, force: a.force + (b.force - a.force) * t,
+                       azimuth: a.azimuth + (b.azimuth - a.azimuth) * t, altitude: a.altitude + (b.altitude - a.altitude) * t)
+    }
+
+    static func distance(_ point: CGPoint, to path: [CGPoint]) -> CGFloat {
+        guard let first = path.first else { return .infinity }
+        var nearest = hypot(point.x - first.x, point.y - first.y)
+        for pair in zip(path, path.dropFirst()) {
+            let dx = pair.1.x - pair.0.x, dy = pair.1.y - pair.0.y
+            let lengthSquared = dx * dx + dy * dy
+            let t = lengthSquared > 0 ? min(1, max(0, ((point.x - pair.0.x) * dx + (point.y - pair.0.y) * dy) / lengthSquared)) : 0
+            nearest = min(nearest, hypot(point.x - pair.0.x - t * dx, point.y - pair.0.y - t * dy))
         }
+        return nearest
     }
 }

@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
@@ -163,8 +163,8 @@ final class InterfaceTests: XCTestCase {
             capture(captureSheet.view, name: "AX5 capture width \(Int(width))")
         }
     }
-    private func findCanvas(_ view: UIView) -> PKCanvasView? {
-        if let canvas = view as? PKCanvasView { return canvas }
+    private func findCanvas(_ view: UIView) -> InkCanvasView? {
+        if let canvas = view as? InkCanvasView { return canvas }
         return view.subviews.lazy.compactMap { self.findCanvas($0) }.first
     }
     private func capture(_ view: UIView, name: String) {

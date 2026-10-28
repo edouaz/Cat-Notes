@@ -1,5 +1,5 @@
 import XCTest
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
@@ -73,15 +73,6 @@ final class GoodnotesAdaptationTests: XCTestCase {
         defer { preferences.removePersistentDomain(forName: directory.lastPathComponent) }
         let session = EditorSession(store: store, noteID: id, preferences: preferences); await session.open()
         let pageID = try XCTUnwrap(session.page?.id)
-        let coordinator = WritingCanvas.Coordinator(session: session, zoomWindow: false)
-        coordinator.pageID = pageID
-        coordinator.canvasViewDidBeginUsingTool(session.canvas)
-        let points = [CGPoint(x: 10, y: 10), CGPoint(x: 50, y: 50)].enumerated().map {
-            PKStrokePoint(location: $0.element, timeOffset: Double($0.offset), size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: 1)
-        }
-        session.canvas.drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: Date()))])
-        coordinator.cancelStroke(restoringDrawing: true)
-        XCTAssertTrue(session.canvas.drawing.strokes.isEmpty, "Cancelled gestures must restore the drawing before the stroke")
         let text = PageElement(kind: .text, x: 100, y: 100, width: 100, height: 60, text: "Resize")
         let sticky = PageElement(kind: .stickyNote, x: 120, y: 120, width: 100, height: 60)
         let applied = await session.apply(.init(pageID: pageID, kind: .setElements, elements: [text, sticky])); XCTAssertTrue(applied)

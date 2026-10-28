@@ -1,17 +1,24 @@
 import XCTest
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
 final class ClipboardAndFoldersTests: XCTestCase {
-    private func stroke(at origin: CGPoint) -> PKStroke {
+    func testPastedInkGetsIndependentIDsAndCanBeSavedBesideOriginal() throws {
+        let original = InkDrawing(strokes: [stroke(at: CGPoint(x: 20, y: 30))])
+        let pasted = try DocumentClipboard.decodeInk(try original.encodedData(), at: CGPoint(x: 100, y: 100), pageSize: CGSize(width: 600, height: 800))
+        XCTAssertNotEqual(pasted.strokes.first?.id, original.strokes.first?.id)
+        let combined = InkDrawing(strokes: original.strokes + pasted.strokes)
+        XCTAssertEqual(try InkDrawing(data: combined.encodedData()).strokes.count, 2)
+    }
+    private func stroke(at origin: CGPoint) -> InkStroke {
         let points = [origin, CGPoint(x: origin.x + 30, y: origin.y + 20)].enumerated().map { index, point in
-            PKStrokePoint(location: point, timeOffset: Double(index), size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            InkStrokePoint(location: point, timeOffset: Double(index), size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        return PKStroke(ink: PKInk(.pen, color: .red), path: PKStrokePath(controlPoints: points, creationDate: Date()))
+        return InkStroke(ink: InkInk(.pen, color: .red), path: InkStrokePath(controlPoints: points, creationDate: Date()))
     }
     func testInkCopySelectsOnlyInkAndPastesEditableAtRequestedPosition() throws {
-        let source = PKDrawing(strokes: [stroke(at: CGPoint(x: 20, y: 30)), stroke(at: CGPoint(x: 400, y: 500))])
+        let source = InkDrawing(strokes: [stroke(at: CGPoint(x: 20, y: 30)), stroke(at: CGPoint(x: 400, y: 500))])
         let selected = DocumentClipboard.selectedInk(source, inside: UIBezierPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100)))
         XCTAssertEqual(selected.strokes.count, 1)
         let pasted = try DocumentClipboard.decodeInk(selected.dataRepresentation(), at: CGPoint(x: 200, y: 300), pageSize: CGSize(width: 794, height: 1123))

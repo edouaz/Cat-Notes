@@ -1,28 +1,26 @@
 # Architecture and data
 
-OpenNotes is a SwiftUI app with a UIKit/PencilKit canvas. It targets iOS/iPadOS 16 and uses system frameworks without external packages.
+OpenNotes is a SwiftUI app with a UIKit native ink canvas. It targets iOS/iPadOS 16 and uses system frameworks without external packages.
 
 ## Follow a change
 
-`OpenNotes/App/LibraryStore.swift` owns library state and mutations. The workspace opens notebooks in tabs. `EditorSession` coordinates editing, while `WritingCanvas` and its coordinator bridge SwiftUI and PencilKit. `PageRenderer` renders page content for previews and export. Codable domain models live in `Core`; services implement disk storage, PDF text indexing, diagnostics and experimental cloud sync.
+`OpenNotes/App/LibraryStore.swift` owns library state and mutations. The workspace opens notebooks in tabs. `EditorSession` coordinates editing, while `WritingCanvas` and its coordinator bridge SwiftUI and native UIKit ink. `PageRenderer` renders page content for previews and export. Codable domain models live in `Core`; services implement disk storage, PDF text indexing, diagnostics and experimental cloud sync.
 
 Before editing a shared model or canvas function, search its callers and tests. Keep the existing separation: views describe controls, editor code handles drawing and coordinates, services handle persistence and external I/O.
 
 ## Writing interaction
 
-The app uses PencilKit for live freehand rendering, committed stroke storage, zoom, and input recognition, with its own toolbar. Freehand strokes are not processed or reassigned at pen-up, even when legacy stabilization preferences exist. This avoids switching from a synthetic preview to a different final stroke. The native ruler keeps its constrained input path. Stroke and partial erasing also use PencilKit; the legacy intelligent mode retains its custom behavior. Partial eraser width is configurable on iOS 16.4 and later.
+`InkCanvasView` captures Pencil input through a logical-page `UIView` inside the existing scroll viewport. Coalesced measurements are deduplicated; predictions stay in the transient preview. Estimated properties correct their measured samples. Pencil-only mode ignores direct input; optional finger writing is separate from two-finger navigation.
 
-Draw-and-hold locks a recognized line, rectangle or ellipse after 650 ms. Further movement adjusts the shape; small release jitter cannot restore the raw stroke. Lines keep their first endpoint; closed shapes rotate and scale around their center. The visible stroke enters the existing pending-save path and commits as one undo step. Cancelled native strokes restore the previous drawing.
+`InkDocument.swift` stores source samples, frozen style, processed geometry and identity in schema-versioned JSON. One Core Graphics outline renderer serves retained vector layers, tool previews, capture and export. Ballpoint width ignores pressure; Fountain/Brush vary progressively. Patterns use arc length; sharpness modifies caps. Constants are starting calibration values.
 
-The live-ink preview is reserved for intentional draw-and-hold shapes and remains visible until PencilKit reports that the replacement drawing has rendered. Ordinary writing does not create that preview or swap to a resting bitmap on PDF pages. PDF export retains its existing compositing rules; on-screen freehand markers use PencilKit throughout the gesture and afterward. Legacy processing helpers remain for compatibility and isolated previews, not the freehand input path.
+A 550 ms stationary hold recognizes lines, ellipses, polygons or curves. The preview adjusts before a single final commit; cancellation discards it. Scribble recognition requires dense repetitive geometry and visible ink overlap; partial erase creates new editable fragments. Circles remain ordinary ink until a later long press on their contour activates the existing lasso.
 
-On iPadOS 17+, pen presets select native monoline, fountain-pen and pen inks. Disabling pressure chooses monoline (a uniform round tip rather than a modified calligraphy nib). The highlighter can use translucent monoline for a round, pressure/tilt-independent stroke. These settings update the active tool immediately and persist in `EditorToolSettings`; earlier OS versions retain the original native tools. New ink types require iPadOS 17+ when reopening the saved drawing. No post-processing is added to freehand input.
+`EditorSession.replaceDrawing` owns undoable document replacement; autosave only receives committed measurements. Late estimated corrections update the same document value. Hover is temporary, Pencil-only and guarded for OS availability and the system preference.
 
-Selection movement caches the page without selected content and a transparent image of the selected ink/elements at pickup. Drag updates translate only the foreground image. `SelectionMoveSnapshot` shares hit-testing and page-edge constraints with the final edit. Cancellation discards the preview without changing the drawing; release commits one undoable edit. The ink preview stays until PencilKit has rendered the replacement. Whole-stroke eraser contact and Pencil hover display a cursor without consuming PencilKit’s erasing gesture.
+Selection uses the existing pickup snapshot and shared page-edge constraints. UIKit transforms the cached preview; release commits one edit. Clipboard copies receive new stroke identifiers on paste. No additional undo stack, document library or third-party dependency is introduced.
 
-Alternatives reviewed: [MaLiang](https://github.com/Harley-xk/MaLiang) (MIT, Metal drawing engine) and [HandDrawingSwiftMetal](https://github.com/eisukekusachi/HandDrawingSwiftMetal). Neither is added: replacing the document engine would expand migration, erasing and export work. Apple's [PKStroke API](https://developer.apple.com/documentation/pencilkit/pkstroke-swift.struct) supports constructing editable strokes from our processed samples while retaining existing documents. No third-party source was copied.
-
-Physical Pencil latency, pressure calibration and long-stroke performance still require device testing; simulator interaction tests cannot establish those properties.
+Old PencilKit ink is explicitly unsupported in build 10, as authorized for this single-user development app. Decode failure does not overwrite it with a blank page. Physical Pencil latency, pressure calibration, navigation conflicts and large-page performance require device testing. See [validation](INK_VALIDATION.md).
 
 ## Local persistence
 

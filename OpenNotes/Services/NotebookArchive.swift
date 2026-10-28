@@ -1,6 +1,5 @@
 import Foundation
 import UIKit
-import PencilKit
 
 struct NotebookArchive: Codable, Sendable {
     var version = 2
@@ -73,7 +72,7 @@ actor DiskStore {
         let background = try page.backgroundID.flatMap { try read($0) }
         let work = Task.detached(priority: .utility) {
             try Task.checkCancellation()
-            let rendered = PageRenderer.image(page, data: background, drawing: try drawing.map(PKDrawing.init(data:)), resources: resources, scale: CGFloat(pixels) / max(PageRenderer.size(page).width, PageRenderer.size(page).height))
+            let rendered = PageRenderer.image(page, data: background, drawing: try drawing.map(InkDrawing.init(data:)), resources: resources, scale: CGFloat(pixels) / max(PageRenderer.size(page).width, PageRenderer.size(page).height))
             guard let pixels = rendered.cgImage else { throw CocoaError(.fileReadCorruptFile) }
             // iOS 16 CoreUI rejects sub-1x UIImage scales when SwiftUI registers an image asset.
             return UIImage(cgImage: pixels, scale: 1, orientation: .up)

@@ -1,5 +1,5 @@
 import SwiftUI
-import PencilKit
+import UIKit
 
 struct InkPreview: View {
     @ObservedObject var session: EditorSession
@@ -52,7 +52,7 @@ struct InkPreview: View {
 struct InkPreviewSample: Equatable {
     static let size = CGSize(width: 288, height: 168)
     let kind: DrawingToolKind
-    let inkType: PKInk.InkType
+    let inkType: InkInk.InkType
     let color: UIColor
     let inkWidth: CGFloat
     let processingWidth: Double
@@ -60,7 +60,7 @@ struct InkPreviewSample: Equatable {
 
     @MainActor
     init?(session: EditorSession) {
-        guard session.selectedTool.isWritingTool, let tool = session.tool as? PKInkingTool else { return nil }
+        guard session.selectedTool.isWritingTool, let tool = session.tool as? InkInkingTool else { return nil }
         kind = session.selectedTool
         inkType = tool.inkType
         color = tool.color.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
@@ -74,22 +74,22 @@ struct InkPreviewSample: Equatable {
         lhs.inkWidth == rhs.inkWidth && lhs.processingWidth == rhs.processingWidth && lhs.settings == rhs.settings
     }
 
-    func drawing() -> PKDrawing {
+    func drawing() -> InkDrawing {
         let margin = max(28, inkWidth / 2 + 20)
         let points = (0...80).map { index in
             let progress = CGFloat(index) / 80
             let location = CGPoint(x: margin + progress * (Self.size.width - margin * 2),
                                    y: Self.size.height / 2 + sin(progress * .pi * 2) * 18)
-            return PKStrokePoint(location: location, timeOffset: Double(progress) * 0.8,
+            return InkStrokePoint(location: location, timeOffset: Double(progress) * 0.8,
                                  size: CGSize(width: inkWidth, height: inkWidth), opacity: 1,
                                  force: 0.15 + 0.85 * sin(progress * .pi), azimuth: .pi / 4, altitude: .pi / 2)
         }
-        let original = PKStroke(ink: PKInk(inkType, color: color),
-                                path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 0)),
-                                transform: .identity, mask: nil, randomSeed: 1)
+        let original = InkStroke(ink: InkInk(inkType, color: color),
+                                path: InkStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 0)),
+                                transform: .identity, randomSeed: 1)
         // Preview and live ink share processing, without activating hold recognition.
         let processed = StrokeProcessing.process(original, tool: kind, width: processingWidth, settings: settings, shapeHeld: false) ?? original
-        return PKDrawing(strokes: [processed])
+        return InkDrawing(strokes: [processed])
     }
 
     func render() -> UIImage? {
@@ -141,13 +141,13 @@ extension InkPreviewSample {
     static func markerSwatch(color: UIColor) -> UIImage {
         let bounds = CGRect(x: 0, y: 0, width: 24, height: 24)
         let points = [-24.0, 12, 48].enumerated().map { index, x in
-            PKStrokePoint(location: CGPoint(x: x, y: 12), timeOffset: Double(index) * 0.1,
+            InkStrokePoint(location: CGPoint(x: x, y: 12), timeOffset: Double(index) * 0.1,
                           size: CGSize(width: 40, height: 40), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        let stroke = PKStroke(ink: PKInk(.marker, color: color),
-                              path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 0)),
-                              transform: .identity, mask: nil, randomSeed: 1)
-        let ink = PKDrawing(strokes: [stroke]).paperImage(from: bounds, scale: 2)
+        let stroke = InkStroke(ink: InkInk(.marker, color: color),
+                              path: InkStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 0)),
+                              transform: .identity, randomSeed: 1)
+        let ink = InkDrawing(strokes: [stroke]).paperImage(from: bounds, scale: 2)
         let format = UIGraphicsImageRendererFormat(); format.scale = 2; format.opaque = true
         return UIGraphicsImageRenderer(size: bounds.size, format: format).image { renderer in
             UIColor.white.setFill(); renderer.fill(bounds)

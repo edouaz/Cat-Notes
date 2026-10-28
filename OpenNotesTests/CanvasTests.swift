@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-import PencilKit
+import UIKit
 import PDFKit
 @testable import OpenNotes
 
@@ -41,12 +41,12 @@ final class CanvasTests: XCTestCase {
         editor.selectedTool = .eraser
         host.rootView = WritingCanvas(session: editor, finger: false, reading: false)
         try await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertTrue(editor.canvas.tool is PKEraserTool)
+        XCTAssertTrue(editor.canvas.tool is InkEraserTool)
         editor.selectedTool = .pen
         editor.inkWidth = 6
         host.rootView = WritingCanvas(session: editor, finger: false, reading: false)
         try await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertEqual((editor.canvas.tool as? PKInkingTool)?.width, 6)
+        XCTAssertEqual((editor.canvas.tool as? InkInkingTool)?.width, 6)
         XCTAssertTrue(editor.canvas.drawingGestureRecognizer.isEnabled)
         host.rootView = WritingCanvas(session: editor, finger: true, reading: true)
         try await Task.sleep(nanoseconds: 200_000_000)
@@ -67,14 +67,14 @@ final class CanvasTests: XCTestCase {
         window.isHidden = true
     }
     func testNativeZoomPreservesStrokeCoordinates() throws {
-        let canvas = PKCanvasView()
+        let canvas = InkCanvasView()
         let view = PageScrollView(canvas: canvas)
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 600)
         view.pageSize = CGSize(width: 500, height: 700)
         let points = [CGPoint(x: 40, y: 50), CGPoint(x: 200, y: 220)].enumerated().map { index, point in
-            PKStrokePoint(location: point, timeOffset: Double(index), size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            InkStrokePoint(location: point, timeOffset: Double(index), size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        canvas.drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: Date()))])
+        canvas.drawing = InkDrawing(strokes: [InkStroke(ink: InkInk(.pen, color: .black), path: InkStrokePath(controlPoints: points, creationDate: Date()))])
         let original = canvas.drawing.dataRepresentation()
         view.layoutIfNeeded()
         for zoom: CGFloat in [1, 2, 4] {

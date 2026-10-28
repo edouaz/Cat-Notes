@@ -1,7 +1,6 @@
-import PencilKit
 import UIKit
 
-extension PKDrawing {
+extension InkDrawing {
     // The document paper stays white even when the surrounding interface is dark.
     func paperImage(from rect: CGRect, scale: CGFloat) -> UIImage {
         var rendered: UIImage!

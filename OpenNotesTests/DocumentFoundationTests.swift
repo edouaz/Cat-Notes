@@ -1,6 +1,6 @@
 import XCTest
 import PDFKit
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
@@ -56,17 +56,17 @@ final class DocumentFoundationTests: XCTestCase {
         XCTAssertFalse(NotebookArchive.validText(original.pdfText))
         original.pdfText = nil
         let note = NoteDocument(id: original.noteID, folderID: UUID(), title: "Legacy", pageIDs: [original.id])
-        var archive = NotebookArchive(note: note, pages: [original], resources: [original.drawingResourceID: PKDrawing().dataRepresentation()])
+        var archive = NotebookArchive(note: note, pages: [original], resources: [original.drawingResourceID: InkDrawing().dataRepresentation()])
         XCTAssertEqual(archive.version, 2)
         archive.version = 1; XCTAssertNoThrow(try archive.validate())
     }
     func testCaptureUsesRectangleAtPageCoordinatesAndNormalScale() throws {
         let original = page()
-        let image = try PageRenderer.capture(original, data: nil, drawing: PKDrawing(), resources: [:], rect: CGRect(x: 40, y: 80, width: 200, height: 100))
+        let image = try PageRenderer.capture(original, data: nil, drawing: InkDrawing(), resources: [:], rect: CGRect(x: 40, y: 80, width: 200, height: 100))
         XCTAssertEqual(image.scale, 1)
         XCTAssertEqual(image.size.width / image.size.height, 2, accuracy: 0.01)
         XCTAssertLessThanOrEqual(max(image.size.width, image.size.height), 2048)
-        XCTAssertThrowsError(try PageRenderer.capture(original, data: nil, drawing: PKDrawing(), resources: [:], rect: CGRect(x: -300, y: -300, width: 10, height: 10)))
+        XCTAssertThrowsError(try PageRenderer.capture(original, data: nil, drawing: InkDrawing(), resources: [:], rect: CGRect(x: -300, y: -300, width: 10, height: 10)))
     }
     func testPaperReplacementRequiresConfirmationForImportedBackgroundOrDifferentSize() {
         let original = page()
@@ -81,7 +81,7 @@ final class DocumentFoundationTests: XCTestCase {
         XCTAssertTrue(PaperSheet.requiresConfirmation(from: original, to: resized))
     }
     func testDoubleTapAlternatesFullPageAndWidthAroundTappedLocation() {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 800, height: 500)
         view.pageSize = CGSize(width: 794, height: 1123); view.layoutIfNeeded()
         let full = view.canvas.minimumZoomScale
@@ -95,7 +95,7 @@ final class DocumentFoundationTests: XCTestCase {
         var original = page()
         original.elements = [PageElement(kind: .stickyNote, text: "Question ouverte", collapsed: true)]
         let note = NoteDocument(id: original.noteID, folderID: UUID(), title: "Lecture", pageIDs: [original.id])
-        let archive = NotebookArchive(note: note, pages: [original], resources: [original.drawingResourceID: PKDrawing().dataRepresentation()])
+        let archive = NotebookArchive(note: note, pages: [original], resources: [original.drawingResourceID: InkDrawing().dataRepresentation()])
         let context = try DocumentContext(archive: archive)
         let encoded = try JSONEncoder().encode(context)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])

@@ -1,5 +1,5 @@
 import XCTest
-import PencilKit
+import UIKit
 import SwiftUI
 @testable import OpenNotes
 
@@ -30,7 +30,7 @@ final class InkPreviewTests: XCTestCase {
         try withSession { session in
             session.selectedTool = .pen; session.inkWidth = 8
             let pen = try XCTUnwrap(InkPreviewSample(session: session))
-            XCTAssertEqual(pen.inkWidth, try XCTUnwrap(session.tool as? PKInkingTool).width)
+            XCTAssertEqual(pen.inkWidth, try XCTUnwrap(session.tool as? InkInkingTool).width)
             XCTAssertTrue(try XCTUnwrap(pen.drawing().strokes.first).path.allSatisfy { $0.size.width == 8 })
             session.selectedTool = .marker; session.inkWidth = 8
             let marker = try XCTUnwrap(InkPreviewSample(session: session))
@@ -60,7 +60,7 @@ final class InkPreviewTests: XCTestCase {
             session.toolSettings.penStyle = .fountain
             let fountain = try XCTUnwrap(InkPreviewSample(session: session))
             let path = try XCTUnwrap(fountain.drawing().strokes.first).path
-            XCTAssertLessThan(path[40].size.height, path[40].size.width)
+            XCTAssertLessThan(path[0].size.width, path[40].size.width)
             session.toolSettings.penStyle = .brush
             let brush = try XCTUnwrap(InkPreviewSample(session: session))
             XCTAssertNotEqual(fountain, brush)
@@ -72,7 +72,7 @@ final class InkPreviewTests: XCTestCase {
         try withSession { session in
             session.selectedTool = .marker; session.inkWidth = 32
             let sample = try XCTUnwrap(InkPreviewSample(session: session))
-            XCTAssertEqual(sample.inkWidth, try XCTUnwrap(session.tool as? PKInkingTool).width)
+            XCTAssertEqual(sample.inkWidth, try XCTUnwrap(session.tool as? InkInkingTool).width)
             XCTAssertLessThanOrEqual(sample.inkWidth, 128)
             let image = try XCTUnwrap(sample.render())
             XCTAssertEqual(image.size, InkPreviewSample.size)

@@ -1,7 +1,7 @@
-import PencilKit
+import UIKit
 
 struct PreparedPage {
-    let drawing: PKDrawing
+    let drawing: InkDrawing
     let background: Data?
     let resources: [String: Data]
     let artwork: PageArtwork
@@ -20,7 +20,7 @@ struct PreparedPage {
             let assets: PageArtwork
             if let artwork, artwork.data == background, artwork.resources == resources { assets = artwork }
             else { assets = PageArtwork(page: page, data: background, resources: resources) }
-            let result = PreparedPage(drawing: try PKDrawing(data: bytes), background: background, resources: resources, artwork: assets)
+            let result = PreparedPage(drawing: try InkDrawing(data: bytes), background: background, resources: resources, artwork: assets)
             try Task.checkCancellation()
             return result
         }

@@ -1,5 +1,4 @@
 import Foundation
-import PencilKit
 import UIKit
 
 struct DocumentContext: Encodable {
@@ -36,12 +35,12 @@ struct DocumentContext: Encodable {
         note = archive.note
         pages = try archive.pages.map { page in
             guard let bytes = archive.resources[page.drawingResourceID] else { throw CocoaError(.fileNoSuchFile) }
-            let drawing = try PKDrawing(data: bytes)
+            let drawing = try InkDrawing(data: bytes)
             return Page(metadata: page, searchableText: page.searchableText, strokes: drawing.strokes.map { stroke in
                 var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 1
                 stroke.ink.color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
                 let t = stroke.transform
-                return Stroke(tool: stroke.ink.inkType.rawValue, rgba: [red, green, blue, alpha].map(Double.init), transform: [t.a, t.b, t.c, t.d, t.tx, t.ty].map(Double.init), visiblePathRanges: stroke.mask == nil ? nil : stroke.maskedPathRanges.map { [Double($0.lowerBound), Double($0.upperBound)] }, points: stroke.path.map { point in
+                return Stroke(tool: stroke.ink.inkType.rawValue, rgba: [red, green, blue, alpha].map(Double.init), transform: [t.a, t.b, t.c, t.d, t.tx, t.ty].map(Double.init), visiblePathRanges: nil, points: stroke.path.map { point in
                     let location = point.location.applying(stroke.transform)
                     return Point(x: location.x, y: location.y, width: point.size.width, height: point.size.height, force: point.force, time: point.timeOffset, opacity: point.opacity, azimuth: point.azimuth, altitude: point.altitude)
                 })

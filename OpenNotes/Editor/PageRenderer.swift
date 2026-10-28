@@ -1,10 +1,9 @@
 import UIKit
 import PDFKit
-import PencilKit
 
 enum PageRenderer {
     static func size(_ page: NotePage) -> CGSize { CGSize(width: page.width ?? 794, height: page.height ?? 1123) }
-    static func background(_ page: NotePage, data: Data?, resources: [String: Data] = [:], context: CGContext, pdfPage: CGPDFPage? = nil, images: [String: UIImage] = [:], pdfUnderlay: PKDrawing? = nil, inkScale: CGFloat = 2, inkRect: CGRect? = nil) {
+    static func background(_ page: NotePage, data: Data?, resources: [String: Data] = [:], context: CGContext, pdfPage: CGPDFPage? = nil, images: [String: UIImage] = [:], pdfUnderlay: InkDrawing? = nil, inkScale: CGFloat = 2, inkRect: CGRect? = nil) {
         let bounds = CGRect(origin: .zero, size: size(page))
         UIColor.white.setFill(); context.fill(bounds)
         var drewPDF = false
@@ -76,23 +75,23 @@ enum PageRenderer {
             ])
         }
     }
-    static func composite(_ page: NotePage, data: Data?, drawing: PKDrawing?, resources: [String: Data] = [:], context: CGContext, pdfPage: CGPDFPage? = nil, images: [String: UIImage] = [:], inkScale: CGFloat = 2, inkRect: CGRect? = nil) {
+    static func composite(_ page: NotePage, data: Data?, drawing: InkDrawing?, resources: [String: Data] = [:], context: CGContext, pdfPage: CGPDFPage? = nil, images: [String: UIImage] = [:], inkScale: CGFloat = 2, inkRect: CGRect? = nil) {
         let reference = pdfPage ?? page.pdfIndex.flatMap { index in data.flatMap { PDFDocument(data: $0)?.page(at: index)?.pageRef } }
         let markers = reference == nil ? [] : drawing?.strokes.filter { $0.ink.inkType == .marker } ?? []
         background(page, data: data, resources: resources, context: context, pdfPage: reference, images: images,
-                   pdfUnderlay: markers.isEmpty ? nil : PKDrawing(strokes: markers), inkScale: inkScale, inkRect: inkRect)
-        let foreground = markers.isEmpty ? drawing : drawing.map { PKDrawing(strokes: $0.strokes.filter { $0.ink.inkType != .marker }) }
+                   pdfUnderlay: markers.isEmpty ? nil : InkDrawing(strokes: markers), inkScale: inkScale, inkRect: inkRect)
+        let foreground = markers.isEmpty ? drawing : drawing.map { InkDrawing(strokes: $0.strokes.filter { $0.ink.inkType != .marker }) }
         let inkBounds = inkRect ?? CGRect(origin: .zero, size: size(page))
         foreground?.paperImage(from: inkBounds, scale: inkScale).draw(in: inkBounds)
     }
-    static func image(_ page: NotePage, data: Data?, drawing: PKDrawing? = nil, resources: [String: Data] = [:], scale: CGFloat = 1) -> UIImage {
+    static func image(_ page: NotePage, data: Data?, drawing: InkDrawing? = nil, resources: [String: Data] = [:], scale: CGFloat = 1) -> UIImage {
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = true
         let bounds = CGRect(origin: .zero, size: size(page))
         return UIGraphicsImageRenderer(size: bounds.size, format: format).image { renderer in
             composite(page, data: data, drawing: drawing, resources: resources, context: renderer.cgContext, inkScale: scale)
         }
     }
-    static func capture(_ page: NotePage, data: Data?, drawing: PKDrawing, resources: [String: Data], rect: CGRect, path: UIBezierPath? = nil) throws -> UIImage {
+    static func capture(_ page: NotePage, data: Data?, drawing: InkDrawing, resources: [String: Data], rect: CGRect, path: UIBezierPath? = nil) throws -> UIImage {
         let crop = rect.standardized.intersection(CGRect(origin: .zero, size: size(page)))
         guard !crop.isNull, crop.width >= 1, crop.height >= 1 else { throw CocoaError(.fileReadCorruptFile) }
         let scale = min(2, 2048 / max(crop.width, crop.height))
@@ -107,13 +106,17 @@ enum PageRenderer {
     static func export(_ archive: NotebookArchive, indices: ClosedRange<Int>, output: URL) throws {
         try archive.validate()
         guard indices.lowerBound >= 0, indices.upperBound < archive.pages.count else { throw CocoaError(.validationMissingMandatoryProperty) }
+        let drawings = try archive.pages.map { page -> InkDrawing in
+            guard let bytes = archive.resources[page.drawingResourceID] else { throw CocoaError(.fileNoSuchFile) }
+            return try InkDrawing(data: bytes)
+        }
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 794, height: 1123))
         try renderer.writePDF(to: output) { renderer in
             for index in indices {
                 let page = archive.pages[index]
                 let bounds = CGRect(origin: .zero, size: size(page))
                 renderer.beginPage(withBounds: bounds, pageInfo: [:])
-                let drawing = archive.resources[page.drawingResourceID].flatMap { try? PKDrawing(data: $0) }
+                let drawing = drawings[index]
                 composite(page, data: page.backgroundID.flatMap { archive.resources[$0] }, drawing: drawing, resources: archive.resources, context: renderer.cgContext)
             }
         }

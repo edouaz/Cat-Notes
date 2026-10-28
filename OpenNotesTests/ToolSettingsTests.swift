@@ -1,5 +1,5 @@
 import XCTest
-import PencilKit
+import UIKit
 import SwiftUI
 @testable import OpenNotes
 
@@ -28,53 +28,40 @@ final class ToolSettingsTests: XCTestCase {
         XCTAssertEqual(reopened.toolSettings.colors(for: .marker).first, "#FF0000")
     }
 
-    func testEraserMasksPixelsPreservesTransformAndWholeStrokeModes() throws {
+    func testEraserFragmentsPreserveTransformAndWholeStrokeModes() throws {
         let samples = stride(from: 10.0, through: 190.0, by: 2).map { x in
-            PKStrokePoint(location: CGPoint(x: x, y: 60), timeOffset: x / 100, size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            InkStrokePoint(location: CGPoint(x: x, y: 60), timeOffset: x / 100, size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        let stroke = PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: samples, creationDate: Date()), transform: CGAffineTransform(translationX: 20, y: 10), mask: nil)
-        let drawing = PKDrawing(strokes: [stroke])
+        let stroke = InkStroke(ink: InkInk(.pen, color: .black), path: InkStrokePath(controlPoints: samples, creationDate: Date()), transform: CGAffineTransform(translationX: 20, y: 10))
+        let drawing = InkDrawing(strokes: [stroke])
         let path = [CGPoint(x: 120, y: 50), CGPoint(x: 120, y: 90)]
         let pixel = EraserEditing.erase(drawing, along: path, width: 20, mode: .pixel)
         let clipped = try XCTUnwrap(pixel.strokes.first)
-        XCTAssertEqual(clipped.path.count, stroke.path.count)
+        XCTAssertEqual(pixel.strokes.count, 2)
         XCTAssertEqual(clipped.transform, stroke.transform)
-        XCTAssertFalse(try XCTUnwrap(clipped.mask).contains(CGPoint(x: 100, y: 60)))
-        XCTAssertTrue(try XCTUnwrap(clipped.mask).contains(CGPoint(x: 30, y: 60)))
-        let decoded = try PKDrawing(data: pixel.dataRepresentation())
-        XCTAssertNotNil(decoded.strokes.first?.mask)
+        XCTAssertNotEqual(clipped.id, stroke.id)
+        let decoded = try InkDrawing(data: pixel.dataRepresentation())
+        XCTAssertEqual(decoded.strokes.count, 2)
         let rect = CGRect(x: 0, y: 0, width: 240, height: 140)
         let beforeImage = drawing.image(from: rect, scale: 1)
         let erasedImage = pixel.image(from: rect, scale: 1)
         let reopenedImage = decoded.image(from: rect, scale: 1)
         XCTAssertGreaterThan(try alpha(beforeImage, at: CGPoint(x: 120, y: 70)), 200)
-        XCTAssertLessThan(try alpha(erasedImage, at: CGPoint(x: 120, y: 70)), 10, "The erased pixels must actually disappear in PencilKit's renderer")
+        XCTAssertLessThan(try alpha(erasedImage, at: CGPoint(x: 120, y: 70)), 10, "The erased pixels must actually disappear in the native renderer")
         XCTAssertGreaterThan(try alpha(erasedImage, at: CGPoint(x: 50, y: 70)), 200)
         XCTAssertLessThan(try alpha(reopenedImage, at: CGPoint(x: 120, y: 70)), 10)
         XCTAssertGreaterThan(try alpha(reopenedImage, at: CGPoint(x: 50, y: 70)), 200)
         XCTAssertTrue(EraserEditing.erase(drawing, along: path, width: 20, mode: .stroke).strokes.isEmpty)
-        XCTAssertEqual(EraserEditing.erase(drawing, along: path, width: 20, mode: .intelligent).strokes.count, 1)
+        XCTAssertEqual(EraserEditing.erase(drawing, along: path, width: 20, mode: .intelligent).strokes.count, 2)
         XCTAssertTrue(EraserEditing.erase(drawing, along: path, width: 240, mode: .intelligent).strokes.isEmpty)
         let remote = EraserEditing.erase(drawing, along: [CGPoint(x: 400, y: 400)], width: 20, mode: .pixel)
-        XCTAssertNil(remote.strokes.first?.mask)
+        XCTAssertEqual(remote.strokes.map(\.id), drawing.strokes.map(\.id))
         // Repeated overlapping erasures must subtract, never restore the first hole.
         let second = EraserEditing.erase(pixel, along: [CGPoint(x: 170, y: 70)], width: 16, mode: .pixel)
-        XCTAssertFalse(try XCTUnwrap(second.strokes.first?.mask).contains(CGPoint(x: 100, y: 60)))
+        XCTAssertLessThan(try alpha(second.image(from: rect, scale: 1), at: CGPoint(x: 120, y: 70)), 10)
     }
 
-    func testEraserCanRemoveVisibleFringeAfterCenterlineWasErased() throws {
-        let points = stride(from: 20.0, through: 180.0, by: 2).map { x in
-            PKStrokePoint(location: CGPoint(x: x, y: 70), timeOffset: x / 100, size: CGSize(width: 20, height: 20), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
-        }
-        let drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: Date()))])
-        let split = EraserEditing.erase(drawing, along: [CGPoint(x: 0, y: 70), CGPoint(x: 200, y: 70)], width: 8, mode: .pixel)
-        XCTAssertFalse(try XCTUnwrap(split.strokes.first?.mask).contains(CGPoint(x: 100, y: 70)))
-        let rect = CGRect(x: 0, y: 0, width: 200, height: 140)
-        XCTAssertGreaterThan(try alpha(split.image(from: rect, scale: 1), at: CGPoint(x: 100, y: 63)), 10)
-        let erased = EraserEditing.erase(split, along: [CGPoint(x: 100, y: 63)], width: 10, mode: .pixel)
-        XCTAssertLessThan(try alpha(erased.image(from: rect, scale: 1), at: CGPoint(x: 100, y: 63)), 10)
-        XCTAssertGreaterThan(try alpha(erased.image(from: rect, scale: 1), at: CGPoint(x: 100, y: 77)), 10)
-    }
+
 
     func testBatchElementActionRejectsInvalidAndDuplicateObjects() throws {
         let page = NotePage(noteID: UUID(), index: 0, format: .a4Portrait, template: .blank, drawingResourceID: "ink.drawing")

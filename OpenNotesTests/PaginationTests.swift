@@ -1,12 +1,12 @@
 import XCTest
 import SwiftUI
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
 final class PaginationTests: XCTestCase {
     func testRetiringHostDoesNotChangeZoomGesturesOfReplacementHost() {
-        let canvas = PKCanvasView()
+        let canvas = InkCanvasView()
         let previous = PageScrollView(canvas: canvas)
         let replacement = PageScrollView(canvas: canvas)
         previous.detachInteractions()
@@ -17,7 +17,7 @@ final class PaginationTests: XCTestCase {
         XCTAssertNil(replacement.zoomGesture.view)
     }
     func testZoomOutBoundsTheAnchorOffsetAndCentersFittedPage() {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 744, height: 893)
         view.pageSize = CGSize(width: 794, height: 1123); view.layoutIfNeeded()
         let offset = view.boundedOffset(CGPoint(x: -63.313, y: 66.696))
@@ -27,7 +27,7 @@ final class PaginationTests: XCTestCase {
         XCTAssertEqual(view.boundedOffset(CGPoint(x: 9000, y: -9000)), CGPoint(x: 844, y: 0))
     }
     func testFittedPageTracksViewportResizeAndPreservesIntentionalZoom() {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 744, height: 945)
         view.pageSize = CGSize(width: 794, height: 1123)
         view.layoutIfNeeded()
@@ -51,7 +51,7 @@ final class PaginationTests: XCTestCase {
         let key = "viewport-\(noteID)-\(pageID)"
         defer { UserDefaults.standard.removeObject(forKey: key) }
         func makeView(height: CGFloat) -> PageScrollView {
-            let view = PageScrollView(canvas: PKCanvasView())
+            let view = PageScrollView(canvas: InkCanvasView())
             view.frame = CGRect(x: 0, y: 0, width: 744, height: height)
             view.pageSize = CGSize(width: 794, height: 1123)
             view.restorePosition(pageID, noteID: noteID)
@@ -101,7 +101,7 @@ final class PaginationTests: XCTestCase {
     }
 
     func testZeroTranslationUsesVelocityAndCancelledTurnDoesNotNavigate() async throws {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 600)
         view.pageSize = CGSize(width: 794, height: 1123)
         view.layoutIfNeeded()
@@ -123,7 +123,7 @@ final class PaginationTests: XCTestCase {
     }
 
     func testInterruptedNavigationIgnoresLateCompletion() async throws {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 600)
         view.pageSize = CGSize(width: 794, height: 1123); view.layoutIfNeeded()
         let turn = view.pageTurn
@@ -188,7 +188,7 @@ final class PaginationTests: XCTestCase {
             XCTAssertEqual(view.pageTurn.shouldBegin(velocity: CGPoint(x: 300, y: 0)), canPageAgain)
             let geometry = "Turn \(completed), target size \(view.pageSize), zoom \(view.canvas.zoomScale), offset \(view.canvas.contentOffset), insets \(view.canvas.contentInset)"
             XCTAssertEqual(incomingFrame.minX, view.paper.frame.minX, accuracy: 1, geometry)
-            XCTAssertEqual(incomingFrame.minY, view.paper.frame.minY, accuracy: 1)
+            XCTAssertEqual(incomingFrame.minY, view.paper.frame.minY, accuracy: 1, geometry)
             XCTAssertEqual(incomingFrame.width, view.paper.frame.width, accuracy: 1)
             XCTAssertEqual(incomingFrame.height, view.paper.frame.height, accuracy: 1)
             completed += 1

@@ -41,11 +41,11 @@ struct EditorInstrumentOptions: View {
     @ViewBuilder private var writingOptions: some View {
         if isPen {
             optionSection("Tip") {
-                Picker("Pen style", selection: $session.toolSettings.penStyle) {
+                Picker("Pen style", selection: Binding(get: { session.toolSettings.penStyle }, set: { session.toolSettings.applyPenPreset($0) })) {
                     Text("Ballpoint").tag(EditorToolSettings.PenStyle.ballpoint)
                     Text("Fountain").tag(EditorToolSettings.PenStyle.fountain)
                     Text("Brush").tag(EditorToolSettings.PenStyle.brush)
-                }.pickerStyle(.menu).frame(minHeight: 44)
+                }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("instrument.penStyle")
                 if session.toolSettings.penStyle != .ballpoint || session.selectedTool == .fountainPen {
                     Picker("Pressure sensitivity", selection: Binding(get: {
                         session.toolSettings.pressureSensitivity ?? 0.5
@@ -59,7 +59,7 @@ struct EditorInstrumentOptions: View {
                 }
             }
         }
-        if session.selectedTool != .marker {
+        if session.selectedTool != .marker && !(isPen && session.toolSettings.penStyle == .ballpoint) {
             optionSection("Apple Pencil") {
                 Toggle("Pressure", isOn: Binding(get: { session.toolSettings.pressureEnabled ?? (!isPen || session.toolSettings.penStyle != .ballpoint) }, set: { session.toolSettings.pressureEnabled = $0 }))
                     .accessibilityIdentifier("instrument.pressureEnabled")
@@ -92,6 +92,18 @@ struct EditorInstrumentOptions: View {
                     session.toolSettings.stabilization(for: session.selectedTool)
                 }, set: { session.toolSettings.setStabilization($0, for: session.selectedTool) }), in: 0...100, step: 1)
                     .accessibilityLabel("Stabilization")
+                if isPen {
+                    Picker("Pattern", selection: Binding(get: { session.toolSettings.inkPattern ?? .solid }, set: { session.toolSettings.inkPattern = $0 })) {
+                        Text("Solid").tag(InkPattern.solid)
+                        Text("Dashed").tag(InkPattern.dashed)
+                        Text("Dotted").tag(InkPattern.dotted)
+                    }.accessibilityIdentifier("instrument.pattern")
+                    if session.toolSettings.penStyle != .ballpoint {
+                        HStack { Text("Tip sharpness"); Spacer(); Text("\(Int((session.toolSettings.tipSharpness ?? 0) * 100)) %").monospacedDigit() }
+                        Slider(value: Binding(get: { session.toolSettings.tipSharpness ?? 0 }, set: { session.toolSettings.tipSharpness = $0 }), in: 0...1)
+                            .accessibilityLabel("Tip sharpness")
+                    }
+                }
                 Text("Saved for this instrument. Higher values steady the stroke with more lag; 0% follows the tip directly.")
                     .font(.footnote).foregroundStyle(.secondary)
             }

@@ -1,5 +1,5 @@
 import Foundation
-import PencilKit
+import UIKit
 
 // Conservative, explicit recognition: ambiguous strokes remain unchanged.
 enum ShapeRecognition {
@@ -47,7 +47,7 @@ enum ShapeRecognition {
         if distance > diagonal * 0.85 {
             let deviation = points.map { abs((last.y - first.y) * $0.x - (last.x - first.x) * $0.y + last.x * first.y - last.y * first.x) / distance }.max()!
             if deviation < max(3, diagonal * 0.06) { return [first, last] }
-            return nil
+            return fittedCurve(points, diagonal: diagonal)
         }
         guard distance < diagonal * 0.15, bounds.width > 20, bounds.height > 20, points.count > 8 else { return nil }
         let ellipseError = points.map { abs(hypot(($0.x - bounds.midX) / (bounds.width / 2), ($0.y - bounds.midY) / (bounds.height / 2)) - 1) }.reduce(0, +) / Double(points.count)
@@ -72,7 +72,49 @@ enum ShapeRecognition {
                 rectangle = (corners + [corners[0]]).map { $0.applying(rotation.inverted()) }
             }
         }
-        return rectangle
+        if let rectangle { return rectangle }
+        let simplified = simplify(points, tolerance: diagonal * 0.035)
+        guard (4...7).contains(simplified.count), let start = simplified.first else { return nil }
+        let polygon = Array(simplified.dropLast()) + [start]
+        let area = abs(zip(polygon, polygon.dropFirst()).reduce(CGFloat.zero) { $0 + $1.0.x * $1.1.y - $1.1.x * $1.0.y }) / 2
+        return area > bounds.width * bounds.height * 0.25 ? polygon : nil
+    }
+
+    private static func simplify(_ points: [CGPoint], tolerance: CGFloat) -> [CGPoint] {
+        guard points.count > 2, let first = points.first, let last = points.last else { return points }
+        let length = hypot(last.x - first.x, last.y - first.y)
+        let distances = points.map { point in
+            length > 0.001 ? abs((last.y - first.y) * (point.x - first.x) - (last.x - first.x) * (point.y - first.y)) / length : hypot(point.x - first.x, point.y - first.y)
+        }
+        guard let index = distances.indices.max(by: { distances[$0] < distances[$1] }), distances[index] > tolerance,
+              index > 0, index < points.count - 1 else { return [first, last] }
+        return Array(simplify(Array(points[...index]), tolerance: tolerance).dropLast()) + simplify(Array(points[index...]), tolerance: tolerance)
+    }
+
+    private static func fittedCurve(_ points: [CGPoint], diagonal: CGFloat) -> [CGPoint]? {
+        guard points.count >= 9, let first = points.first, let last = points.last else { return nil }
+        var distances: [CGFloat] = [0]
+        for pair in zip(points, points.dropFirst()) { distances.append(distances.last! + hypot(pair.1.x - pair.0.x, pair.1.y - pair.0.y)) }
+        guard let length = distances.last, length > diagonal * 1.02, length < diagonal * 1.8 else { return nil }
+        var numerator = CGPoint.zero, denominator: CGFloat = 0
+        for (point, distance) in zip(points, distances) {
+            let t = distance / length, a = (1 - t) * (1 - t), b = 2 * t * (1 - t), c = t * t
+            numerator.x += b * (point.x - a * first.x - c * last.x)
+            numerator.y += b * (point.y - a * first.y - c * last.y)
+            denominator += b * b
+        }
+        guard denominator > 0 else { return nil }
+        let control = CGPoint(x: numerator.x / denominator, y: numerator.y / denominator)
+        func position(_ t: CGFloat) -> CGPoint {
+            CGPoint(x: (1 - t) * (1 - t) * first.x + 2 * t * (1 - t) * control.x + t * t * last.x,
+                    y: (1 - t) * (1 - t) * first.y + 2 * t * (1 - t) * control.y + t * t * last.y)
+        }
+        let error = zip(points, distances).reduce(CGFloat.zero) { sum, pair in
+            let ideal = position(pair.1 / length)
+            return sum + hypot(pair.0.x - ideal.x, pair.0.y - ideal.y)
+        } / CGFloat(points.count)
+        guard error < diagonal * 0.025 else { return nil }
+        return (0...32).map { position(CGFloat($0) / 32) }
     }
 }
 @MainActor
@@ -84,9 +126,9 @@ extension EditorSession {
             error = "Ambiguous stroke: draw a line, rectangle or closed ellipse."; return
         }
         let controls = points.enumerated().map { index, point in
-            PKStrokePoint(location: point, timeOffset: Double(index) * 0.01, size: last.path.first?.size ?? CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            InkStrokePoint(location: point, timeOffset: Double(index) * 0.01, size: last.path.first?.size ?? CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        let replacement = PKStroke(ink: last.ink, path: PKStrokePath(controlPoints: controls, creationDate: Date()))
-        replaceDrawing(PKDrawing(strokes: Array(drawing.strokes.dropLast()) + [replacement]), actionName: "Smooth stroke")
+        let replacement = InkStroke(ink: last.ink, path: InkStrokePath(controlPoints: controls, creationDate: Date()))
+        replaceDrawing(InkDrawing(strokes: Array(drawing.strokes.dropLast()) + [replacement]), actionName: "Smooth stroke")
     }
 }

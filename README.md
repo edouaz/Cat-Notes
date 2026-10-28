@@ -4,9 +4,11 @@
 
 ### A friendly place for your ideas.
 
-A native, open-source notebook for iPad and iPhone, built with SwiftUI, PencilKit and PDFKit. Write by hand, annotate PDFs and keep your notebooks on your device. No account or external package is needed for local use.
+A native, open-source notebook for iPad and iPhone, built with SwiftUI, UIKit, Core Graphics and PDFKit. Write by hand, annotate PDFs and keep your notebooks on your device. No account or external package is needed for local use.
 
-**Public prototype · 0.1.0 / build 9 · iOS & iPadOS 16+**
+**Current source · 0.1.0 / build 10 · iOS & iPadOS 16+**
+
+The published download below remains the older build 9 prototype.
 
 [Explore the website](https://edouaz.github.io/OpenNotes/) · [Download the IPA](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.9/OpenNotes-ios16-build9-unsigned.ipa) · [Installation & development](https://edouaz.github.io/OpenNotes/develop.html) · [Contribute](CONTRIBUTING.md)
 
@@ -17,15 +19,16 @@ A native, open-source notebook for iPad and iPhone, built with SwiftUI, PencilKi
 The app has a simple notebook library and tabs for keeping several notebooks open. Open notebooks and the active tab are restored on launch.
 
 - Apple Pencil writing with pen, highlighter, eraser and lasso, plus undo and redo.
-- Tap the selected tool again for color, width, pen presets and selection options. On iPadOS 17+, choose ballpoint, fountain or brush ink, switch to constant-width writing, or use a round highlighter without Pencil tilt.
+- Tap the selected tool for color, width, ballpoint/fountain/brush profiles, stabilization, sharpness and solid/dashed/dotted patterns on iPadOS 16+.
 - Move selected ink and attachments with a live preview. Whole-stroke erasing shows a tip cursor, including Pencil hover on supported iPads.
 - Add pages directly; browse and reorder pages from the page counter.
 - Paper templates, search, PDF export and native `.catnote` backups in the notebook menu.
 - PDF import, folders, favorites and recoverable Trash in the library menu.
 - Existing notebook ink and attachments remain compatible. Local storage, autosave and explicit save errors are retained.
 
-The permanent library sidebar, toolbar customization, and large insertion menus have been removed from the main experience. Freehand strokes use PencilKit directly, without replacing the live stroke at pen-up. Attachment editing is available for pages that already contain attachments. The drawing engine and file format remain compatible with earlier notebooks.
+Writing now uses the application's native ink engine. Raw Pencil samples, frozen styles and editable geometry are saved in versioned JSON. Predicted input and hover remain temporary. Partial erasing creates independent editable fragments; draw-and-hold and circle-then-long-press use the existing editor selection and undo system.
 
+**Build 10 changes the ink format. Old PencilKit pages are unsupported and produce an explicit error.** Create a new notebook for this build. No automatic conversion or deletion is performed. See [migration audit](MIGRATION_AUDIT.md) and [validation report](docs/INK_VALIDATION.md).
 The downloadable build and screenshots below describe the older build 9 interface, not this source cleanup.
 
 | Your library | Tune your pen |
@@ -70,7 +73,7 @@ xcodebuild -project OpenNotes.xcodeproj -scheme OpenNotes \
 | --- | --- |
 | `OpenNotes/App/` | Library, workspace and shared visual style |
 | `OpenNotes/Core/` | Codable models, paper and tool settings |
-| `OpenNotes/Editor/` | PencilKit canvas, rendering, gestures and editing |
+| `OpenNotes/Editor/` | Native ink capture, geometry, rendering, gestures and editing |
 | `OpenNotes/Services/` | Persistence, PDF indexing, diagnostics and optional sync |
 | `Shared/`, `ShareExtension/` | App Group inbox and iOS share extension |
 | `OpenNotesTests/`, `OpenNotesUITests/` | Domain, storage, rendering and interaction tests |

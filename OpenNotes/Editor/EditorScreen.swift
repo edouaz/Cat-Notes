@@ -1,5 +1,5 @@
 import SwiftUI
-import PencilKit
+import UIKit
 
 struct EditorScreen: View {
     @StateObject private var session: EditorSession

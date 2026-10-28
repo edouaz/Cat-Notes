@@ -1,11 +1,11 @@
 import SwiftUI
-import PencilKit
+import UIKit
 import Vision
 
 @MainActor
 final class EditorSession: ObservableObject {
     @Published var page: NotePage?
-    var drawing = PKDrawing()
+    var drawing = InkDrawing()
     @Published var searchHighlights: [CGRect] = []
     @Published var background: UIImage?
     @Published var dirty = false
@@ -13,7 +13,7 @@ final class EditorSession: ObservableObject {
     @Published var error: String?
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
-    let canvas = PKCanvasView()
+    let canvas = InkCanvasView()
     var canvasPageID: UUID?
     func refreshUndoAvailability() {
         let undo = canvas.undoManager
@@ -63,40 +63,24 @@ final class EditorSession: ObservableObject {
     func setInkColor(_ color: Color) {
         inkColor = Color(UIColor(presetHex: UIColor(color).presetHex) ?? .black)
     }
-    var documentInkWidth: Double { (tool as? PKInkingTool).map { Double($0.width) } ?? inkWidth }
-    var documentInkWidthRange: ClosedRange<Double> {
-        let type = inkingType
-        let factor = selectedTool == .marker ? 4.0 : 1.0
-        let minimum = max(DrawingToolPreset.minimumWidth * factor, Double(type.validWidthRange.lowerBound))
-        let maximum = min(DrawingToolPreset.maximumWidth * factor, Double(type.validWidthRange.upperBound))
-        return minimum...maximum
-    }
+    var documentInkWidth: Double { inkWidth * (selectedTool == .marker ? 4 : 1) }
+    var documentInkWidthRange: ClosedRange<Double> { selectedTool == .marker ? 2...128 : 0.5...32 }
     func setDocumentInkWidth(_ width: Double) {
         guard width.isFinite else { return }
         let range = documentInkWidthRange
         inkWidth = min(range.upperBound, max(range.lowerBound, width)) / (selectedTool == .marker ? 4 : 1)
     }
-    // Use native ink types so the live stroke and the saved stroke remain identical.
-    var inkingType: PKInk.InkType {
+    var inkingType: InkInk.InkType {
         if selectedTool == .pencil { return .pencil }
-        if #available(iOS 17.0, *) {
-            if selectedTool == .marker { return toolSettings.markerTiltEnabled == false ? .monoline : .marker }
-            if !toolSettings.penPressureEnabled { return .monoline }
-            return toolSettings.penStyle == .fountain || selectedTool == .fountainPen ? .fountainPen : .pen
-        }
-        return selectedTool == .marker ? .marker : .pen
+        if selectedTool == .marker { return .marker }
+        if selectedTool == .fountainPen || toolSettings.penStyle == .fountain { return .fountainPen }
+        return toolSettings.penStyle == .ballpoint ? .monoline : .pen
     }
-    var tool: PKTool {
+    var tool: InkTool {
         switch selectedTool {
-        case .eraser:
-            let type: PKEraserTool.EraserType = toolSettings.eraserMode == .pixel ? .bitmap : .vector
-            if #available(iOS 16.4, *) { return PKEraserTool(type, width: toolSettings.eraserWidth) }
-            return PKEraserTool(type)
-        case .lasso: return PKLassoTool()
-        default:
-            let roundHighlighter = selectedTool == .marker && toolSettings.markerTiltEnabled == false
-            let color = roundHighlighter ? paperInkColor.withAlphaComponent(0.3) : paperInkColor
-            return PKInkingTool(inkingType, color: color, width: inkWidth * (selectedTool == .marker ? 4 : 1))
+        case .eraser: return InkEraserTool(toolSettings.eraserMode == .pixel ? .bitmap : .vector, width: toolSettings.eraserWidth)
+        case .lasso: return InkLassoTool()
+        default: return InkInkingTool(inkingType, color: paperInkColor, width: documentInkWidth)
         }
     }
     let store: LibraryStore
@@ -105,7 +89,7 @@ final class EditorSession: ObservableObject {
     var backgroundData: Data?
     var resources: [String: Data] = [:]
     private var opening = UUID()
-    private var pending: [UUID: (NotePage, PKDrawing, UUID)] = [:]
+    private var pending: [UUID: (NotePage, InkDrawing, UUID)] = [:]
     private var autosave: Task<Void, Never>?
     private var writeTask: Task<Bool, Never>?
     var ocrTask: Task<Void, Never>?
@@ -116,6 +100,7 @@ final class EditorSession: ObservableObject {
            saved.stabilization.isFinite, (0...100).contains(saved.stabilization),
            saved.stabilizationByStyle?.values.allSatisfy({ $0.isFinite && (0...100).contains($0) }) != false,
            saved.pressureSensitivity.map({ $0.isFinite && (0...1).contains($0) }) != false,
+           saved.tipSharpness.map({ $0.isFinite && (0...1).contains($0) }) != false,
            saved.eraserWidth.isFinite, (4...100).contains(saved.eraserWidth),
            Set(saved.toolbarOrder) == Set(EditorToolSettings.ToolbarItem.allCases),
            saved.toolbarOrder.count == EditorToolSettings.ToolbarItem.allCases.count,
@@ -195,7 +180,7 @@ final class EditorSession: ObservableObject {
             UserDefaults.standard.set(target.id.uuidString, forKey: "lastPage-\(noteID)")
         } catch { Diagnostics.shared.failure("page.open.failure", error: error); if opening == request { self.error = error.localizedDescription } }
     }
-    func changed(_ drawing: PKDrawing) {
+    func changed(_ drawing: InkDrawing) {
         guard let page else { return }
         self.drawing = drawing
         if !dirty { dirty = true; Diagnostics.shared.record("ink.dirty", ["page": page.id.uuidString, "strokes": String(drawing.strokes.count)]) }
@@ -222,7 +207,7 @@ final class EditorSession: ObservableObject {
             do {
                 for (id, item) in batch {
                     let (page, drawing, revision) = item
-                    let data = await Task.detached(priority: .utility) { drawing.dataRepresentation() }.value
+                    let data = try await Task.detached(priority: .utility) { try drawing.encodedData() }.value
                     try await store.disk.write(data, name: page.drawingResourceID)
                     if pending[id]?.2 == revision { pending[id] = nil }
                     if var latest = store.library.page(id: id) {
@@ -263,7 +248,7 @@ final class EditorSession: ObservableObject {
             return page?.id == action.pageID && error == nil
         } catch { Diagnostics.shared.failure("editor.failure", error: error); self.error = error.localizedDescription; return false }
     }
-    func replaceContent(_ drawing: PKDrawing, elements: [PageElement], actionName: String) {
+    func replaceContent(_ drawing: InkDrawing, elements: [PageElement], actionName: String) {
         guard let page else { return }
         do {
             let updated = try DocumentAction(pageID: page.id, kind: .setElements, elements: elements).applying(to: page)
@@ -278,7 +263,7 @@ final class EditorSession: ObservableObject {
             refreshUndoAvailability()
         } catch { self.error = error.localizedDescription }
     }
-    private func registerContentUndo(_ drawing: PKDrawing, elements: [PageElement], actionName: String) {
+    private func registerContentUndo(_ drawing: InkDrawing, elements: [PageElement], actionName: String) {
         canvas.undoManager?.registerUndo(withTarget: self) { target in
             target.replaceContent(drawing, elements: elements, actionName: actionName)
         }
@@ -308,9 +293,8 @@ final class EditorSession: ObservableObject {
             if let bytes = UIPasteboard.general.data(forPasteboardType: DocumentClipboard.inkType) {
                 let pasted = try DocumentClipboard.decodeInk(bytes, at: point, pageSize: size)
                 let previous = canvas.drawing
-                let merged = PKDrawing(strokes: previous.strokes + pasted.strokes)
-                canvas.undoManager?.registerUndo(withTarget: canvas) { canvas in canvas.drawing = previous }
-                canvas.drawing = merged; changed(merged)
+                let merged = InkDrawing(strokes: previous.strokes + pasted.strokes)
+                replaceDrawing(merged, actionName: "Paste strokes")
             } else if let image = UIPasteboard.general.image {
                 await insertImage(image, at: point)
             } else if let text = UIPasteboard.general.string, !text.isEmpty {

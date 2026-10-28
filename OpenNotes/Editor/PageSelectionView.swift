@@ -1,5 +1,4 @@
 import UIKit
-import PencilKit
 
 enum PageSelectionAction { case preview, copyPhoto, copyInk, enlarge, shrink, deleteContent }
 
@@ -46,6 +45,9 @@ final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func clearSelection() { completed = false; path = UIBezierPath(); outline.path = nil; editMenu.dismissMenu() }
+    func installSelection(_ selection: UIBezierPath) {
+        path = selection; completed = true; outline.path = path.cgPath
+    }
     private func perform(_ action: PageSelectionAction) {
         guard completed else { return }
         selected?(path.bounds.intersection(bounds), path, action)
@@ -112,7 +114,7 @@ final class SelectionDragPreview: UIView {
     let zoom: CGFloat
     private(set) var delta = CGPoint.zero
 
-    init(frame: CGRect, page: NotePage, artwork: PageArtwork?, drawing: PKDrawing,
+    init(frame: CGRect, page: NotePage, artwork: PageArtwork?, drawing: InkDrawing,
          snapshot: SelectionMoveSnapshot, zoom: CGFloat, offset: CGPoint) {
         self.snapshot = snapshot; self.zoom = zoom
         super.init(frame: frame)
@@ -122,7 +124,7 @@ final class SelectionDragPreview: UIView {
             .intersection(CGRect(origin: .zero, size: snapshot.pageSize))
         guard !visible.isNull, !snapshot.isEmpty else { return }
         var base = page; base.elements?.removeAll { snapshot.elementIDs.contains($0.id) }
-        let remaining = PKDrawing(strokes: drawing.strokes.enumerated().filter { !snapshot.strokeIndices.contains($0.offset) }.map(\.element))
+        let remaining = InkDrawing(strokes: drawing.strokes.enumerated().filter { !snapshot.strokeIndices.contains($0.offset) }.map(\.element))
         let format = UIGraphicsImageRendererFormat(); format.scale = min(2, traitCollection.displayScale)
         background.image = UIGraphicsImageRenderer(size: bounds.size, format: format).image { output in
             let context = output.cgContext

@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-import PencilKit
+import UIKit
 @testable import OpenNotes
 
 @MainActor
@@ -25,7 +25,7 @@ final class RedesignTests: XCTestCase {
         XCTAssertEqual(UIColor(session.inkColor).presetHex, UIColor(Color.blue).presetHex)
         session.selectedTool = .marker
         XCTAssertEqual(session.inkWidth, 4)
-        XCTAssertEqual(try XCTUnwrap(session.tool as? PKInkingTool).width, 16, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(session.tool as? InkInkingTool).width, 16, accuracy: 0.001)
         let reopened = EditorSession(store: store, noteID: id, preferences: defaults)
         XCTAssertEqual(reopened.selectedTool, .marker)
         XCTAssertEqual(reopened.inkWidth, 4)
@@ -36,13 +36,13 @@ final class RedesignTests: XCTestCase {
         defaults.set("marker", forKey: "inkTool"); defaults.set(12.0, forKey: "inkWidth")
         let wideMarker = EditorSession(store: store, noteID: id, preferences: defaults)
         XCTAssertEqual(wideMarker.inkWidth, 12, "Also preserve legacy highlighters above 32 engine points")
-        XCTAssertEqual(try XCTUnwrap(wideMarker.tool as? PKInkingTool).width, 48, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(wideMarker.tool as? InkInkingTool).width, 48, accuracy: 0.001)
     }
     func testInkMetadataDoesNotInvalidatePaperOrRecreateControls() {
         var page = NotePage(noteID: UUID(), index: 0, format: .a4Portrait, template: .grid, drawingResourceID: "ink.drawing")
         page.elements = [PageElement(kind: .image, resource: "photo.png"), PageElement(kind: .stickyNote, text: "Note")]
         let artwork = PageArtwork(page: page, data: nil, resources: [:])
-        let view = PageScrollView(canvas: PKCanvasView()); view.pageSize = PageRenderer.size(page)
+        let view = PageScrollView(canvas: InkCanvasView()); view.pageSize = PageRenderer.size(page)
         view.paper.configure(page: page, artwork: artwork)
         view.configureImages(page, images: [:], pencil: false) { _, _ in }
         view.configureNotes(page, edit: nil) { _, _ in }
@@ -72,9 +72,9 @@ final class RedesignTests: XCTestCase {
         XCTAssertEqual(max(transition.size.width, transition.size.height), 1400, accuracy: 1)
         XCTAssertEqual(transition.scale, 1)
         let points = [CGPoint(x: 20, y: 20), CGPoint(x: 400, y: 600)].enumerated().map { index, point in
-            PKStrokePoint(location: point, timeOffset: Double(index), size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            InkStrokePoint(location: point, timeOffset: Double(index), size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
-        let ink = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .red), path: PKStrokePath(controlPoints: points, creationDate: Date()))])
+        let ink = InkDrawing(strokes: [InkStroke(ink: InkInk(.pen, color: .red), path: InkStrokePath(controlPoints: points, creationDate: Date()))])
         try await store.disk.write(ink.dataRepresentation(), name: page.drawingResourceID)
         let updated = try await store.disk.thumbnail(page, pixels: 1400)
         XCTAssertNotEqual(transition.pngData(), updated.pngData())
@@ -95,8 +95,8 @@ final class RedesignTests: XCTestCase {
         let added = await store.addPage(noteID: id, after: first.id); let second = try XCTUnwrap(added)
         let session = EditorSession(store: store, noteID: id); await session.open(first.id)
         session.preparePage(second)
-        let point = PKStrokePoint(location: CGPoint(x: 50, y: 60), timeOffset: 0, size: CGSize(width: 5, height: 5), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
-        session.changed(PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [point], creationDate: Date()))]))
+        let point = InkStrokePoint(location: CGPoint(x: 50, y: 60), timeOffset: 0, size: CGSize(width: 5, height: 5), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        session.changed(InkDrawing(strokes: [InkStroke(ink: InkInk(.pen, color: .black), path: InkStrokePath(controlPoints: [point], creationDate: Date()))]))
         let folder = root.appendingPathComponent("resources"), backup = root.appendingPathComponent("safe-resources")
         try FileManager.default.moveItem(at: folder, to: backup); try Data().write(to: folder)
         await session.open(second)
@@ -109,7 +109,7 @@ final class RedesignTests: XCTestCase {
     }
 
     func testTransitionWaitsForInstalledCanvasAndRecoversFromFailure() async throws {
-        let view = PageScrollView(canvas: PKCanvasView())
+        let view = PageScrollView(canvas: InkCanvasView())
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 600); view.pageSize = CGSize(width: 794, height: 1123); view.layoutIfNeeded()
         let turn = view.pageTurn; turn.canNext = true
         var completion: CheckedContinuation<Bool, Never>?
