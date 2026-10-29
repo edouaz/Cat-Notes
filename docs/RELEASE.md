@@ -1,33 +1,40 @@
-# OpenNotes 0.1.0 — prototype build 9
+# OpenNotes 0.1.0 — prototype build 11
 
-**Early public prototype, far from a final release.** Native iPhone/iPad app, iOS/iPadOS 16+.
+**Early public prototype, with remaining implementation gaps.** Native iPhone/iPad app, iOS/iPadOS 16+, arm64. This is not an App Store or TestFlight release.
 
-[Download the unsigned IPA](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.9/OpenNotes-ios16-build9-unsigned.ipa) · [Installation](https://edouaz.github.io/OpenNotes/develop.html#install)
+[Download the unsigned IPA](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.11/OpenNotes-ipados16-goodnotes-build11-unsigned.ipa) · [Installation](https://edouaz.github.io/OpenNotes/develop.html#install) · [Implementation report](../IMPLEMENTATION_REPORT.md)
 
-## What changes in build 9
+## Changes since public build 9
 
-- OpenNotes identity across the app, Xcode project, modules, source folders, repository and documentation.
-- A smiling notebook app icon and mascot, with light, dark and tinted icon artwork.
-- English interface, errors, accessibility labels, documentation and developer-facing text.
-- A blue accent that works in light and dark appearances.
-- A redesigned website with automatic system appearance and a saved manual light/dark override.
+- Native ink engine with ballpoint/fountain/brush styles, pressure geometry, stabilization, patterns and existing pen gestures.
+- Redesigned library and editor: grid/list, notebook creation, document tabs, page sidebar, tool customization, dockable palettes and read-only protection.
+- Precision vector erasing, Standard segment erasing and whole-Stroke erasing, filters, preview, Clear Page and automatic return.
+- Lasso selection and transformation handles, alignment guides, locking/recoloring, mixed clipboard and rectangular PDF captures.
+- Rich-text sticky notes, inline editing, background colors, rotation, collapse, locking, attached ink/objects and persistence.
 
-The existing editing tools, notebook formats and save behavior remain in place. This is a rebrand and presentation update, not a claim of production readiness.
+## Upgrade compatibility — read before installing
 
-## Upgrade compatibility
+**Older PencilKit pages, including public build 9 notes, are unsupported by the native engine.** They fail explicitly; this release does not convert them. Export PDFs and native backups with your current app before updating. Do not rely on this build to open those older pages.
 
-The app deliberately retains its earlier bundle identifiers, App Group, Keychain service, local data directory and `.catnote` format. Changing those identifiers during a rebrand would make an existing installation's notes or session inaccessible.
+Native ink schema 1 remains readable. New writes use schema 2; original schema-1 resources are backed up before their first overwrite. Older app builds cannot read schema-2 ink. Original PDFs and existing library files are not reset or deleted.
 
-Export a native backup first. Install the signed update over the previous app using the **same team, bundle identifiers and App Group**. Do not uninstall the previous app before backing up. Changing signing identifiers can prevent access to the original data. An in-place upgrade on physical hardware has not been verified.
+The existing bundle identifiers, App Group, Keychain service and storage path remain. Sign the app and embedded share extension with matching entitlements and your own provisioning setup. Keep the same team and identifiers when updating an installation whose data you need. The IPA is **unsigned** and requires signing before installation.
 
-## Installation and limits
+## Validation and remaining limits
 
-The IPA is **unsigned**, arm64, iPhoneOS, with app and share extension build number 9. It needs signing and provisioning before installation. There is no App Store or TestFlight distribution. Installation of this artifact after re-signing has not been verified.
-
-Physical Pencil performance, older devices, accessibility and live cloud synchronization remain incompletely validated. OpenNotes should not be the only copy of important notes.
+- **178 XCTest + 7 Swift Testing tests pass**, plus **2 UI tests** covering creation, read-only, sticky placement, list layout, finger ink, Undo/Redo and process reopen.
+- Release arm64 archive and IPA integrity, app/extension build 11, minimum OS 16.0 and unsigned state verified.
+- Physical iPadOS 16 execution, Pencil calibration/latency, older-iPad performance, comprehensive accessibility and cloud synchronization are not validated.
+- This is not complete Goodnotes parity: global ink-versus-object stacking remains incomplete; rotated notes lack free side-resize; image recropping after insertion is not a non-destructive editor; rich lists lack automatic continuation/indentation. Full details and exact evidence are in [IMPLEMENTATION_REPORT.md](../IMPLEMENTATION_REPORT.md).
 
 ## Artifact integrity
 
-The published [build manifest](build9-package.json) records the SHA-256 checksum, byte size, platform, architecture and deployment target. The release also includes the manifest as a downloadable asset.
+[Build manifest](goodnotes-build11-package.json) records the SHA-256, size, source-tree digest, architecture and test counts. It is also attached to the GitHub release.
 
-Build 8 is historical. Its previous manifest remains in the source history for traceability; use the build 9 download above for OpenNotes.
+SHA-256 of the unsigned IPA:
+
+```text
+c98745e8ca1ba8e840750adff36c8fa1abc5127616422f7999e8ec423d26f328
+```
+
+Earlier builds remain available in release history. Build 11 is the current public download; do not reinterpret historical build-9 screenshots or PencilKit compatibility as applying to this release.

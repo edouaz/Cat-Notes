@@ -8,17 +8,17 @@ A native, open-source notebook for iPad and iPhone, built with SwiftUI, UIKit, C
 
 **Current source · 0.1.0 / build 11 · iOS & iPadOS 16+**
 
-The published download below remains the older build 9 prototype.
+The latest public download is prototype build 11.
 
-Build 11 integrates the redesigned library/editor, vector precision erasing, lasso transformations and mixed clipboard, and editable rich-text sticky notes. Local unsigned artifact and validation/remaining differences are recorded in [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md). Ink schema 1 remains readable; new writes use schema 2 and preserve original schema-1 resources in `ink-schema-backups` before rewriting. Existing PencilKit incompatibility from build 10 still applies.
+Build 11 integrates the redesigned library/editor, vector precision erasing, lasso transformations and mixed clipboard, and editable rich-text sticky notes. Unsigned artifact validation and remaining differences are recorded in [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md). Ink schema 1 remains readable; new writes use schema 2 and preserve original schema-1 resources in `ink-schema-backups` before rewriting. Existing PencilKit incompatibility from build 10 still applies.
 
-[Explore the website](https://edouaz.github.io/OpenNotes/) · [Download the IPA](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.9/OpenNotes-ios16-build9-unsigned.ipa) · [Installation & development](https://edouaz.github.io/OpenNotes/develop.html) · [Contribute](CONTRIBUTING.md)
+[Explore the website](https://edouaz.github.io/OpenNotes/) · [Download the IPA](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.11/OpenNotes-ipados16-goodnotes-build11-unsigned.ipa) · [Installation & development](https://edouaz.github.io/OpenNotes/develop.html) · [Contribute](CONTRIBUTING.md)
 
-![OpenNotes custom editor on iPad](docs/assets/editor.png)
+![OpenNotes build 11 editor on iPad](docs/assets/goodnotes-build11/editor-reopened.png)
 
 ## Current source experience
 
-The app has a simple notebook library and tabs for keeping several notebooks open. Open notebooks and the active tab are restored on launch.
+The app has a redesigned notebook library with grid/list views and tabs for keeping several notebooks open. Open notebooks and the active tab are restored on launch.
 
 - Apple Pencil writing with pen, highlighter, eraser and lasso, plus undo and redo.
 - Tap the selected tool for color, width, ballpoint/fountain/brush profiles, stabilization, sharpness and solid/dashed/dotted patterns on iPadOS 16+.
@@ -26,22 +26,24 @@ The app has a simple notebook library and tabs for keeping several notebooks ope
 - Add pages directly; browse and reorder pages from the page counter.
 - Paper templates, search, PDF export and native `.catnote` backups in the notebook menu.
 - PDF import, folders, favorites and recoverable Trash in the library menu.
-- Existing notebook ink and attachments remain compatible. Local storage, autosave and explicit save errors are retained.
+- Rich-text sticky notes with colors, collapse, locking and attached content.
+- Precision, Standard and Stroke erasing, mixed-object clipboard and lasso scale/rotation.
+- Existing native ink remains readable. Local storage, autosave and explicit save errors are retained.
 
-Writing now uses the application's native ink engine. Raw Pencil samples, frozen styles and editable geometry are saved in versioned JSON. Predicted input and hover remain temporary. Partial erasing creates independent editable fragments; draw-and-hold and circle-then-long-press use the existing editor selection and undo system.
+Writing now uses the application's native ink engine. Raw Pencil samples, frozen styles and editable geometry are saved in versioned JSON. Predicted input and hover remain temporary. Standard erasing creates independent editable fragments; Precision preserves a clipped vector silhouette; draw-and-hold and circle-then-long-press use the existing editor selection and undo system.
 
 **Build 10 changes the ink format. Old PencilKit pages are unsupported and produce an explicit error.** Create a new notebook for this build. No automatic conversion or deletion is performed. See [migration audit](MIGRATION_AUDIT.md) and [validation report](docs/INK_VALIDATION.md).
-The downloadable build and screenshots below describe the older build 9 interface, not this source cleanup.
+Build 11 reads native ink schema 1/2 and writes schema 2, backing up original schema-1 resources before their first overwrite. Read the [release notes](docs/RELEASE.md) before upgrading from build 9.
 
 | Your library | Tune your pen |
 | --- | --- |
-| ![Notebook library, build 9](docs/assets/library.png) | ![Pen preview, build 9](docs/assets/pen-preview.png) |
+| ![Notebook library, build 11](docs/assets/goodnotes-build11/library-list.png) | ![Pen options, build 11](docs/assets/goodnotes-build11/pen-options.png) |
 
-Screenshots are real simulator captures. All images show the OpenNotes build 9 interface. [Capture provenance](docs/SCREENSHOTS.md).
+Screenshots are real simulator captures. The images above show OpenNotes build 11. [Capture provenance](docs/SCREENSHOTS.md).
 
 ## Install the prototype
 
-[Download build 9](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.9/OpenNotes-ios16-build9-unsigned.ipa). **The IPA is unsigned**: opening it on an iPhone or iPad does not install it. Sign it using your own provisioning setup, or run the source in Xcode. The app and share extension need matching App Group entitlements. See the [installation guide](https://edouaz.github.io/OpenNotes/develop.html#install).
+[Download build 11](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.11/OpenNotes-ipados16-goodnotes-build11-unsigned.ipa). **The IPA is unsigned**: opening it on an iPhone or iPad does not install it. Sign it using your own provisioning setup, or run the source in Xcode. The app and share extension need matching App Group entitlements. See the [installation guide](https://edouaz.github.io/OpenNotes/develop.html#install).
 
 OpenNotes keeps the existing bundle identifiers, App Group, Keychain service and local data directory so an update can access earlier notes. Sign with the same team and identifiers and export a native backup before upgrading. Do not uninstall first. [Compatibility details](docs/ARCHITECTURE.md#rebrand-compatibility-identifiers).
 

@@ -26,8 +26,8 @@
 
     <section id="install">
       <h2>Install the prototype</h2>
-      <p><strong>Version 0.1.0, build 9 · iOS/iPadOS 16+ · arm64 · unsigned.</strong></p>
-      <a class="button primary" href="https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.9/OpenNotes-ios16-build9-unsigned.ipa">Download the IPA</a>
+      <p><strong>Version 0.1.0, build 11 · iOS/iPadOS 16+ · arm64 · unsigned.</strong></p>
+      <a class="button primary" href="https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.11/OpenNotes-ipados16-goodnotes-build11-unsigned.ipa">Download the IPA</a>
       <p>The download is a development artifact, not a one-tap installer. iOS requires valid signing and provisioning. This is not an App Store or TestFlight release.</p>
       <ol>
         <li>Download the IPA to your Mac or PC.</li>
@@ -41,7 +41,8 @@
         <p>OpenNotes keeps the earlier app’s bundle identifiers, App Group, Keychain service and local data directory. These technical identifiers deliberately retain their old spelling so an in-place update can access existing notes. The app, project, modules and public identity are OpenNotes.</p>
         <p>Export native backups first. Sign with the same team, bundle identifiers and App Group as your existing installation, and install over it. Do not uninstall before backing up. A changed signing identity or identifier may prevent access to the previous app’s data.</p>
       </div>
-      <p>This is an early prototype. Physical Pencil behavior, older hardware and accessibility still need validation. Keep another copy of valuable notes.</p>
+      <p><strong>Format compatibility:</strong> older PencilKit pages (including build 9) are unsupported and fail explicitly. Export PDFs and native backups before upgrading; existing native-ink schema 1 is readable, and build 11 writes schema 2 with a backup before first overwrite. Do not downgrade schema-2 notes onto an older app.</p>
+      <p>This is an early prototype. Physical Pencil behavior, older hardware and accessibility still need validation. Keep another copy of valuable notes. <a href="https://github.com/edouaz/OpenNotes/blob/main/IMPLEMENTATION_REPORT.md">Implementation status and remaining differences</a>.</p>
     </section>
 
     <section id="development">
@@ -82,7 +83,7 @@ xcodebuild -project OpenNotes.xcodeproj -scheme OpenNotes \
 
 python3 scripts/package-ipa.py \
   build/OpenNotes.xcarchive/Products/Applications/OpenNotes.app \
-  build/OpenNotes-ios16-build9-unsigned.ipa</code></pre>
+  build/OpenNotes-ipados16-goodnotes-build11-unsigned.ipa</code></pre>
       <p>The packaging script refuses to overwrite an existing output and verifies ZIP integrity. Unsigned packaging does not establish installability.</p>
     </section>
 
@@ -91,7 +92,7 @@ python3 scripts/package-ipa.py \
       <ul>
         <li><a href="https://github.com/edouaz/OpenNotes/blob/main/docs/ARCHITECTURE.md">Architecture and storage</a> — modules, save behavior, backups and import/export.</li>
         <li><a href="https://github.com/edouaz/OpenNotes/blob/main/CONTRIBUTING.md">Contributing</a> — focused changes, tests and pull requests.</li>
-        <li><a href="https://github.com/edouaz/OpenNotes/blob/main/docs/RELEASE.md">Release notes</a> — build 9 changes, limits and artifact manifest.</li>
+        <li><a href="https://github.com/edouaz/OpenNotes/blob/main/docs/RELEASE.md">Release notes</a> — build 11 changes, limits and artifact manifest.</li>
         <li><a href="https://github.com/edouaz/OpenNotes/blob/main/docs/SUPABASE.md">Optional Supabase experiment</a> — setup and validation boundaries. Not required for local notebooks.</li>
         <li><a href="https://github.com/edouaz/OpenNotes/blob/main/SECURITY.md">Security reporting</a> and <a href="https://github.com/edouaz/OpenNotes/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a>.</li>
       </ul>
