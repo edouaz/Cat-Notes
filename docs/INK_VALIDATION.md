@@ -36,4 +36,40 @@ All physical-device checks above are **NOT RUN**. No Goodnotes parity, FPS, pres
 
 ## Execution log
 
-Pending final suite and packaging results. Interrupted work: see `MIGRATION_AUDIT.md`, branch `codex/custom-ink-engine`.
+Final source: `06354375bc36145d5c56a9e51f6f4501bd42f49f`.
+
+- **PASS:** 150 XCTest cases, 0 failures, plus 7 Swift Testing tests in 2 suites. Final result bundle: `build/native-ink/Logs/Test/Test-OpenNotes-2026.10.29_09-52-13-+0100.xcresult`.
+- **PASS:** actual finger draw → Undo → Redo → scroll pen options → return to library → terminate/relaunch → reopen same notebook, with screenshots. UI result bundle: `build/native-ink/Logs/Test/Test-OpenNotes-2026.10.29_00-39-16-+0100.xcresult`. This solid-ink UI run preceded the final sparse-taper fix; the final suite includes its dedicated regression and all rendering/storage tests.
+- **PASS:** Release archive for generic iOS, unsigned app and share extension, arm64, both deployment targets 16.0. Neither executable links PencilKit.
+- **PASS:** IPA ZIP integrity, required app/extension binaries, stable bundle identifiers, generated-project determinism, `git diff --check`, website appearance checks.
+- Package: `build/artifacts/OpenNotes-ios16-native-ink-build10-unsigned.ipa` (4,300,548 bytes). [SHA-256 and provenance](native-ink-build10-package.json).
+
+Commands actually run (with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`):
+
+```sh
+xcodebuild -project OpenNotes.xcodeproj -scheme OpenNotes -destination 'platform=iOS Simulator,id=DB793DDF-5123-499E-BEF4-2ED940550098' -derivedDataPath build/native-ink CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:OpenNotesTests test
+xcodebuild -project OpenNotes.xcodeproj -scheme OpenNotes -destination 'platform=iOS Simulator,id=DB793DDF-5123-499E-BEF4-2ED940550098' -derivedDataPath build/native-ink CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:OpenNotesUITests/NativeInkInteractionUITests test
+xcodebuild -project OpenNotes.xcodeproj -scheme OpenNotes -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build/native-device -archivePath build/OpenNotes-native-build10.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
+python3 scripts/package-ipa.py build/OpenNotes-native-build10.xcarchive/Products/Applications/OpenNotes.app build/artifacts/OpenNotes-ios16-native-ink-build10-unsigned.ipa
+```
+
+Synthetic final simulator diagnostics (two-point strokes, not a Pencil latency measurement):
+
+| Strokes | Encoded bytes | Encode | Decode | 256pt viewport render |
+|---|---:|---:|---:|---:|
+| 1,000 | 770,114 | 48 ms | 35 ms | 7 ms |
+| 10,000 | 7,739,634 | 515 ms | 363 ms | 30 ms |
+
+Initial failures exposed viewport restoration between page sizes and outdated PencilKit expectations; those were corrected and all final unit tests pass. XCTest's popover `swipeUp` reported an empty visible frame despite visible bounds; a real coordinate drag verified scrolling and access to patterns. One intermediate run aborted inside UIKit's background keyboard Auto Layout while opening the unrelated rename alert. The final ink smoke test identifies the notebook by ID and does not exercise that keyboard path; physical reproduction of this simulator incident was not checked.
+
+## Simulator evidence
+
+Actual ink still visible after process relaunch:
+
+![Native ink after reopening](assets/native-ink-build10-reopened.png)
+
+Pen options reached through the active toolbar and scrolled by touch:
+
+![Native pen options](assets/native-ink-build10-options.png)
+
+Further validation: run the physical-device checklist above. No additional software feature or legacy conversion is pending in the authorized implementation scope.

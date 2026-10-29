@@ -18,12 +18,15 @@ Integration: native InkDrawing snapshots remain the single document value; Edito
 
 No migration flag or legacy importer: explicitly waived by user. Prior `.catnote` ink is unsupported in this build. Physical Pencil/hover/latency and Goodnotes equivalence cannot be certified by simulator tests.
 
-## Progress
+## Delivery status
+
 - `f86396b`: existing editor/UI work preserved before migration.
 - `d63f466`: native model, schema validation, shared renderer and model tests.
-- Input, editor, geometry/gesture, clipboard, export and storage integration implemented. Removed PencilKit imports/types and the old observer/preview handoff.
-- First full simulator run: 148 XCTest cases + Swift Testing suites; two viewport assertions and one obsolete highlighter expectation failed. Native model/input/gesture/persistence suites passed. Viewport reset and expectation corrected.
-- Final unit/UI run and unsigned Release archive in progress. Logs: `/tmp/catnotes-native-final-tests.log`, `/tmp/catnotes-native-archive.log`.
-- Next: inspect final results/screenshots, package archive, verify arm64/minOS/no PencilKit dependency, write checksum, commit and publish branch/PR.
+- `528fc69`: native capture, geometry/gestures, editor, clipboard, storage and export integration; removed PencilKit observer/preview paths.
+- `11590c5`: pen-only gesture arbitration and popover UI test.
+- `0635437`: sparse tapered-line rendering correction and regression coverage.
+- **PASS:** final 150 XCTest + 7 Swift Testing tests; actual finger-writing/Undo/Redo/options/process-reopen UI smoke test; unsigned Release archive and IPA integrity checks.
+- Final IPA: `build/artifacts/OpenNotes-ios16-native-ink-build10-unsigned.ipa`; checksum/provenance: `docs/native-ink-build10-package.json`.
+- Final evidence, exact commands, synthetic performance numbers and remaining physical checks: [validation report](docs/INK_VALIDATION.md).
 
-The initial baseline build overlapped native implementation and is not an independent baseline verification. Final migration builds/tests are the delivery evidence. Physical iPad calibration remains pending.
+The initial baseline build overlapped implementation and is not independent baseline verification. Final migration builds/tests provide delivery evidence. Old-note conversion was waived; physical iPad/Pencil calibration and the recorded simulator keyboard incident remain validation limits. Implementation and local packaging are complete.

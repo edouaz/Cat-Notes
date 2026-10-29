@@ -1,0 +1,14 @@
+{
+  "file": "OpenNotes-ios16-native-ink-build10-unsigned.ipa",
+  "sha256": "0cd4dbb8796c0425aaf3bd8ee839c82f7524465081b9c1b74211d71e020567fd",
+  "bytes": 4300548,
+  "architecture": "arm64",
+  "platform": "iPhoneOS",
+  "minimumOS": "16.0",
+  "bundleIdentifier": "fr.catnotes.app",
+  "version": "0.1.0",
+  "build": "10",
+  "signed": false,
+  "sourceCommit": "06354375bc36145d5c56a9e51f6f4501bd42f49f",
+  "pencilKitLinked": false
+}
