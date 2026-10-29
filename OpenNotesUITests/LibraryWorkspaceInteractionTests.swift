@@ -73,7 +73,7 @@ final class LibraryWorkspaceInteractionTests: XCTestCase {
 
     private func createNotebook() throws -> String {
         let create = app.buttons["library.create"]
-        reveal(create, towardTop: true); create.tap()
+        reveal(create, towardTop: true); create.tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(app.buttons["editor.pages"].waitForExistence(timeout: 10))
         let appended = try XCTUnwrap(options.allElementsBoundByIndex.last,
                                     "The tab flow requires an iPad at regular width")

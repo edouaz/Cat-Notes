@@ -11,7 +11,7 @@ final class TextAndRulerInteractionTests: XCTestCase {
         defer { app.terminate() }
         if app.buttons["workspace.library"].waitForExistence(timeout: 3) { app.buttons["workspace.library"].tap() }
         XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10))
-        app.buttons["library.create"].tap()
+        app.buttons["library.create"].tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(app.buttons["editor.insert"].waitForExistence(timeout: 10))
         app.buttons["editor.insert"].tap()
         app.buttons["Shapes"].tap()
@@ -62,7 +62,7 @@ final class TextAndRulerInteractionTests: XCTestCase {
         defer { app.terminate() }
         if app.buttons["workspace.library"].waitForExistence(timeout: 3) { app.buttons["workspace.library"].tap() }
         XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10))
-        app.buttons["library.create"].tap()
+        app.buttons["library.create"].tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         let ruler = app.buttons["editor.ruler"]
         XCTAssertTrue(ruler.waitForExistence(timeout: 10))
         if !ruler.isSelected { ruler.tap() }

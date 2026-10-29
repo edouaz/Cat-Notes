@@ -2,7 +2,7 @@ import Foundation
 
 struct EditorToolSettings: Codable, Equatable {
     enum PenStyle: String, Codable, CaseIterable { case ballpoint, fountain, brush }
-    enum EraserMode: String, Codable, CaseIterable { case stroke, pixel, intelligent }
+    enum EraserMode: String, Codable, CaseIterable { case stroke, precision, standard, pixel, intelligent }
     enum LassoShape: String, Codable, CaseIterable { case freeform, rectangle }
     enum ToolbarItem: String, Codable, CaseIterable, Identifiable {
         case pen, pencil, marker, eraser, lasso, image, stickyNote
@@ -63,6 +63,10 @@ struct EditorToolSettings: Codable, Equatable {
     }
     var eraserMode = EraserMode.stroke
     var eraserWidth = 24.0
+    var erasePen: Bool?
+    var eraseHighlighter: Bool?
+    var eraserAutoDeselect: Bool?
+    var alignObjects: Bool?
     var lassoShape = LassoShape.freeform
     var includeHandwriting = true
     var includeText: Bool?
@@ -77,7 +81,7 @@ struct EditorToolSettings: Codable, Equatable {
     func colors(for tool: DrawingToolKind) -> [String] {
         let key = tool == .fountainPen ? "pen" : tool.rawValue
         return favoriteColors[key] ?? (tool == .marker
-            ? ["#FFE66D", "#A8E6CF", "#FFAFCC", "#A9D6FF", "#D9B8FF", "#FFC48C"]
-            : ["#202725", "#1F665E", "#315BB1", "#B34242", "#9253A1", "#B77826"])
+            ? ["#FFE66D", "#A8E6CF", "#FFAFCC"]
+            : ["#202725", "#B34242", "#315BB1"])
     }
 }

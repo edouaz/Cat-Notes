@@ -18,7 +18,7 @@ final class PaginationInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10))
         let notebooks = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.note."))
         let previous = Set(notebooks.allElementsBoundByIndex.map(\.identifier))
-        app.buttons["library.create"].tap()
+        app.buttons["library.create"].tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         app.buttons["workspace.library"].tap()
         let created = notebooks.matching(NSPredicate(format: "NOT (identifier IN %@)", argumentArray: [Array(previous)])).firstMatch

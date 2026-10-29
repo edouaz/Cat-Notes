@@ -1,6 +1,6 @@
 import UIKit
 
-enum PageSelectionAction { case preview, copyPhoto, copyInk, enlarge, shrink, deleteContent }
+enum PageSelectionAction { case preview, copyPhoto, copyInk, enlarge, shrink, deleteContent, copySelection, cutSelection, duplicateSelection, lockSelection, collapseSelection, bringFront, sendBack, editText, recolorSelection, formatText }
 
 final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
     var selected: ((CGRect, UIBezierPath, PageSelectionAction) -> Void)?
@@ -12,6 +12,19 @@ final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
     var moved: ((UIBezierPath, CGPoint) -> Void)?
     var pasteMenuRequested: ((CGPoint) -> Void)?
     var pasteRequested: ((CGPoint) -> Void)?
+    var transformChanged: ((CGFloat, CGFloat, CGFloat, CGPoint) -> Void)?
+    var transformCommitted: ((UIBezierPath, CGFloat, CGFloat, CGFloat, CGPoint) -> Void)?
+    var allowsFreeResize: ((UIBezierPath) -> Bool)?
+    var directSelection: ((CGPoint) -> UIBezierPath?)?
+    var menuActions: ((UIBezierPath) -> [UIMenuElement])?
+    private var handles: [UIView] = []
+    private var freeResizeAllowed = false
+    private var transformOrigin = UIBezierPath()
+    private var transformStart = CGPoint.zero
+    private var pendingScale: CGFloat = 1
+    private var pendingRotation: CGFloat = 0
+    private var pendingScaleY: CGFloat = 1
+    private var transformAnchor = CGPoint.zero
     private var path = UIBezierPath()
     private var completed = false
     private var start = CGPoint.zero
@@ -28,6 +41,17 @@ final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(drag(_:)))
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+        for index in 0..<9 {
+            let handle = UIView(); handle.tag = index
+            let dot = UIView(frame: CGRect(x: 17, y: 17, width: 10, height: 10))
+            dot.backgroundColor = index >= 5 ? .systemBlue : .white; dot.layer.borderColor = UIColor.systemBlue.cgColor; dot.layer.borderWidth = 2
+            dot.layer.cornerRadius = index >= 4 ? 5 : 1
+            dot.isUserInteractionEnabled = false; handle.addSubview(dot)
+            handle.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(transformDragged(_:))))
+            handle.accessibilityLabel = index == 4 ? "Rotate selection" : "Scale selection"
+            handle.isHidden = true; addSubview(handle); handles.append(handle)
+        }
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
         hold.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         addGestureRecognizer(hold); addInteraction(editMenu)
@@ -44,9 +68,12 @@ final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
         ]
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func clearSelection() { completed = false; path = UIBezierPath(); outline.path = nil; editMenu.dismissMenu() }
+    func clearSelection() { completed = false; path = UIBezierPath(); outline.path = nil; handles.forEach { $0.isHidden = true }; editMenu.dismissMenu() }
     func installSelection(_ selection: UIBezierPath) {
         path = selection; completed = true; outline.path = path.cgPath
+        freeResizeAllowed = allowsFreeResize?(path) == true
+        updateHandles()
+        presentMenu()
     }
     private func perform(_ action: PageSelectionAction) {
         guard completed else { return }
@@ -60,16 +87,84 @@ final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
         } else { pasteMenuRequested?(point) }
     }
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        UIMenu(children: [
-            UIAction(title: "Enlarge by 10%", image: UIImage(systemName: "arrow.up.left.and.arrow.down.right")) { [weak self] _ in self?.perform(.enlarge) },
-            UIAction(title: "Shrink by 10%", image: UIImage(systemName: "arrow.down.right.and.arrow.up.left")) { [weak self] _ in self?.perform(.shrink) },
-            UIAction(title: "Delete selection", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in self?.perform(.deleteContent) },
-            UIAction(title: "Image: copy", image: UIImage(systemName: "camera")) { [weak self] _ in self?.perform(.copyPhoto) },
-            UIAction(title: "Image: share…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in self?.perform(.preview) },
-            UIAction(title: "Copy strokes only", image: UIImage(systemName: "pencil.tip")) { [weak self] _ in self?.perform(.copyInk) },
-            UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in self?.pasteRequested?(configuration.sourcePoint) }
+        if let menuActions { return UIMenu(children: menuActions(path)) }
+        return UIMenu(children: [
+            UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in self?.perform(.copySelection) },
+            UIAction(title: "Cut", image: UIImage(systemName: "scissors")) { [weak self] _ in self?.perform(.cutSelection) },
+            UIAction(title: "Duplicate", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in self?.perform(.duplicateSelection) },
+            UIAction(title: "Take Screenshot", image: UIImage(systemName: "camera")) { [weak self] _ in self?.perform(.preview) }
         ])
     }
+    func action(_ title: String, symbol: String, kind: PageSelectionAction, destructive: Bool = false) -> UIAction {
+        UIAction(title: title, image: UIImage(systemName: symbol), attributes: destructive ? .destructive : []) { [weak self] _ in self?.perform(kind) }
+    }
+    private func presentMenu() {
+        guard completed, !immediate, window != nil else { return }
+        let point = CGPoint(x: min(max(24, path.bounds.midX), bounds.width - 24), y: max(24, path.bounds.minY - 12))
+        editMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+    }
+    private func updateHandles() {
+        let rect = path.bounds
+        let centers = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.midX, y: rect.minY - 30), CGPoint(x: rect.minX, y: rect.midY), CGPoint(x: rect.maxX, y: rect.midY), CGPoint(x: rect.midX, y: rect.minY), CGPoint(x: rect.midX, y: rect.maxY)]
+        for (index, handle) in handles.enumerated() {
+            handle.isHidden = !completed || immediate || (index >= 5 && !freeResizeAllowed)
+            handle.frame = CGRect(x: centers[index].x - 22, y: centers[index].y - 22, width: 44, height: 44)
+        }
+    }
+    @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: self)
+        if completed, path.contains(point) { presentMenu(); return }
+        if let selected = directSelection?(point) { installSelection(selected) }
+        else { clearSelection() }
+    }
+    @objc private func transformDragged(_ gesture: UIPanGestureRecognizer) {
+        guard completed, let handle = gesture.view else { return }
+        let point = gesture.location(in: self)
+        if gesture.state == .began {
+            transformOrigin = UIBezierPath(cgPath: path.cgPath); transformStart = point
+            pendingScale = 1; pendingRotation = 0; editMenu.dismissMenu()
+            moveBegan?(transformOrigin)
+        }
+        let rect = transformOrigin.bounds
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        if gesture.state == .began {
+            if handle.tag == 4 || gesture.modifierFlags.contains(.alternate) { transformAnchor = center }
+            else {
+                let anchors = [CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.minX, y: rect.minY), center, CGPoint(x: rect.maxX, y: rect.midY), CGPoint(x: rect.minX, y: rect.midY), CGPoint(x: rect.midX, y: rect.maxY), CGPoint(x: rect.midX, y: rect.minY)]
+                transformAnchor = anchors[handle.tag]
+            }
+        }
+        if handle.tag == 4 {
+            pendingRotation = atan2(point.y - center.y, point.x - center.x) - atan2(transformStart.y - center.y, transformStart.x - center.x)
+            pendingScaleY = 1
+        } else if handle.tag >= 5 {
+            if handle.tag <= 6 {
+                pendingScale = min(10, max(0.1, abs(point.x - transformAnchor.x) / max(1, abs(transformStart.x - transformAnchor.x))))
+                pendingScaleY = gesture.modifierFlags.contains(.shift) ? pendingScale : 1
+            } else {
+                pendingScaleY = min(10, max(0.1, abs(point.y - transformAnchor.y) / max(1, abs(transformStart.y - transformAnchor.y))))
+                pendingScale = gesture.modifierFlags.contains(.shift) ? pendingScaleY : 1
+            }
+        } else {
+            pendingScale = min(10, max(0.1, hypot(point.x - transformAnchor.x, point.y - transformAnchor.y) / max(1, hypot(transformStart.x - transformAnchor.x, transformStart.y - transformAnchor.y))))
+            pendingScaleY = pendingScale
+        }
+        let a = cos(pendingRotation) * pendingScale, b = sin(pendingRotation) * pendingScale
+        let c = -sin(pendingRotation) * pendingScaleY, d = cos(pendingRotation) * pendingScaleY
+        let anchor = transformAnchor
+        path = UIBezierPath(cgPath: transformOrigin.cgPath)
+        path.apply(CGAffineTransform(a: a, b: b, c: c, d: d, tx: anchor.x - a * anchor.x - c * anchor.y, ty: anchor.y - b * anchor.x - d * anchor.y))
+        outline.path = path.cgPath; updateHandles()
+        transformChanged?(pendingScale, pendingScaleY, pendingRotation, anchor)
+        if gesture.state == .ended {
+            transformCommitted?(transformOrigin, pendingScale, pendingScaleY, pendingRotation, anchor)
+            clearSelection()
+        } else if gesture.state == .cancelled || gesture.state == .failed {
+            moveCancelled?()
+            path = transformOrigin; outline.path = path.cgPath; updateHandles()
+        }
+    }
+
     @objc private func drag(_ gesture: UIPanGestureRecognizer) {
         updateDrag(state: gesture.state, point: gesture.location(in: self), translation: gesture.translation(in: self))
     }
@@ -89,6 +184,7 @@ final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
             let delta = moveChanged?(requested) ?? requested
             path = UIBezierPath(cgPath: originalPath.cgPath); path.apply(CGAffineTransform(translationX: delta.x, y: delta.y))
             outline.path = path.cgPath
+            updateHandles()
             if state == .ended { moved?(originalPath, delta); moving = false; clearSelection() }
             else if state == .cancelled || state == .failed { moveCancelled?(); path = originalPath; outline.path = path.cgPath; moving = false }
             return
@@ -101,7 +197,10 @@ final class PageSelectionView: UIView, UIEditMenuInteractionDelegate {
             let rect = path.bounds.intersection(bounds)
             completed = !rect.isNull && rect.width >= 8 && rect.height >= 8
             outline.path = completed ? path.cgPath : nil
+            freeResizeAllowed = completed && allowsFreeResize?(path) == true
+            updateHandles()
             if completed && immediate { perform(.preview) }
+            else if completed { presentMenu() }
         } else if state == .cancelled || state == .failed { completed = false; outline.path = nil }
     }
 }
@@ -113,13 +212,17 @@ final class SelectionDragPreview: UIView {
     let snapshot: SelectionMoveSnapshot
     let zoom: CGFloat
     private(set) var delta = CGPoint.zero
+    private let guides = CAShapeLayer()
+    private var guidePosition: CGPoint?
+    private let offset: CGPoint
 
     init(frame: CGRect, page: NotePage, artwork: PageArtwork?, drawing: InkDrawing,
          snapshot: SelectionMoveSnapshot, zoom: CGFloat, offset: CGPoint) {
-        self.snapshot = snapshot; self.zoom = zoom
+        self.snapshot = snapshot; self.zoom = zoom; self.offset = offset
         super.init(frame: frame)
         isUserInteractionEnabled = false; clipsToBounds = true
         background.frame = bounds; addSubview(background); addSubview(foreground)
+        guides.strokeColor = UIColor.systemBlue.cgColor; guides.lineWidth = 1; guides.lineDashPattern = [4, 4]; guides.fillColor = nil; layer.addSublayer(guides)
         let visible = CGRect(x: offset.x / zoom, y: offset.y / zoom, width: bounds.width / zoom, height: bounds.height / zoom)
             .intersection(CGRect(origin: .zero, size: snapshot.pageSize))
         guard !visible.isNull, !snapshot.isEmpty else { return }
@@ -153,7 +256,23 @@ final class SelectionDragPreview: UIView {
 
     @discardableResult
     func move(by screenDelta: CGPoint) -> CGPoint {
-        delta = snapshot.clamped(CGPoint(x: screenDelta.x / zoom, y: screenDelta.y / zoom))
+        let requested = CGPoint(x: screenDelta.x / zoom, y: screenDelta.y / zoom)
+        // Keep a captured guide until the pointer leaves a wider release band.
+        let tolerance: CGFloat = guidePosition == nil ? 5 : 8
+        let result = snapshot.snap(requested, tolerance: tolerance / max(0.01, zoom))
+        delta = result.0; guidePosition = result.1
+        let guidePath = UIBezierPath()
+        if let guidePosition {
+            if guidePosition.x.isFinite {
+                let x = guidePosition.x * zoom - offset.x
+                guidePath.move(to: CGPoint(x: x, y: 0)); guidePath.addLine(to: CGPoint(x: x, y: bounds.height))
+            }
+            if guidePosition.y.isFinite {
+                let y = guidePosition.y * zoom - offset.y
+                guidePath.move(to: CGPoint(x: 0, y: y)); guidePath.addLine(to: CGPoint(x: bounds.width, y: y))
+            }
+        }
+        guides.path = guidePath.cgPath
         let screen = CGPoint(x: delta.x * zoom, y: delta.y * zoom)
         foreground.transform = CGAffineTransform(translationX: screen.x, y: screen.y)
         return screen

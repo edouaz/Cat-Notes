@@ -11,6 +11,7 @@ final class ImageHandlesView: UIView, UIContextMenuInteractionDelegate, UIGestur
     var changed: ((PageElement?) -> Void)?
     var selected: (() -> Void)?
     var editableWithPencil = true
+    var editsDirectly = true
     var showsHandles = true {
         didSet {
             handles.forEach { $0.isHidden = !showsHandles }
@@ -55,7 +56,7 @@ final class ImageHandlesView: UIView, UIContextMenuInteractionDelegate, UIGestur
         accessibilityLabel = "Image"
         accessibilityIdentifier = "image.\(item.id)"
         accessibilityCustomActions = [
-            UIAccessibilityCustomAction(name: "Delete") { [weak self] _ in self?.changed?(nil); return true },
+            UIAccessibilityCustomAction(name: "Delete") { [weak self] _ in if self?.item.isLocked != true { self?.changed?(nil) }; return true },
             UIAccessibilityCustomAction(name: "Copy image") { [weak self] _ in UIPasteboard.general.image = self?.preview.image; return true },
             UIAccessibilityCustomAction(name: "Move left") { [weak self] _ in self?.moveImage(by: CGPoint(x: -20, y: 0)); return true },
             UIAccessibilityCustomAction(name: "Move right") { [weak self] _ in self?.moveImage(by: CGPoint(x: 20, y: 0)); return true },
@@ -95,13 +96,15 @@ final class ImageHandlesView: UIView, UIContextMenuInteractionDelegate, UIGestur
         UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             UIMenu(children: [
                 UIAction(title: "Copy image", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.image = self?.preview.image },
-                UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in self?.changed?(nil) }
+                UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: self?.item.isLocked == true ? [.destructive, .disabled] : .destructive) { _ in if self?.item.isLocked != true { self?.changed?(nil) } }
             ])
         }
     }
     @objc private func selectImage() { showsHandles = true; selected?() }
-    @objc private func deleteImage() { changed?(nil) }
+    @objc private func deleteImage() { if item.isLocked != true { changed?(nil) } }
     @objc private func dragImage(_ gesture: UIPanGestureRecognizer) {
+        guard editsDirectly else { if gesture.state == .began { selected?() }; return }
+        guard item.isLocked != true else { return }
         if gesture.state == .began { initial = frame; selectImage(); Diagnostics.shared.record("image.drag.begin", ["image": item.id.uuidString]) }
         let point = gesture.location(in: superview)
         let delta = CGPoint(x: point.x - dragStart.x, y: point.y - dragStart.y)
@@ -112,11 +115,13 @@ final class ImageHandlesView: UIView, UIContextMenuInteractionDelegate, UIGestur
         } else if gesture.state == .cancelled { frame = initial; Diagnostics.shared.record("image.drag.cancel") }
     }
     func moveImage(by delta: CGPoint) {
+        guard item.isLocked != true, delta.x.isFinite, delta.y.isFinite else { return }
         item.x = min(max(0, item.x + delta.x), max(0, pageSize.width - item.width))
         item.y = min(max(0, item.y + delta.y), max(0, pageSize.height - item.height))
         changed?(item)
     }
     func resizeImage(by factor: CGFloat, corner: Int = 3) {
+        guard item.isLocked != true, factor.isFinite, item.width > 0, item.height > 0 else { return }
         let left = corner % 2 == 0, top = corner < 2
         let right = item.x + item.width, bottom = item.y + item.height
         let limit = min((left ? right : pageSize.width - item.x) / item.width, (top ? bottom : pageSize.height - item.y) / item.height)
@@ -128,6 +133,7 @@ final class ImageHandlesView: UIView, UIContextMenuInteractionDelegate, UIGestur
         changed?(item)
     }
     func resizeSide(_ side: Int, by delta: CGFloat) {
+        guard item.isLocked != true, delta.isFinite else { return }
         let minimum = 44 / max(zoom, 0.01)
         switch side {
         case 4:
@@ -143,7 +149,7 @@ final class ImageHandlesView: UIView, UIContextMenuInteractionDelegate, UIGestur
         changed?(item)
     }
     @objc private func scale(_ gesture: UIPanGestureRecognizer) {
-        guard let corner = gesture.view?.tag else { return }
+        guard item.isLocked != true, let corner = gesture.view?.tag else { return }
         if gesture.state == .began { initial = frame; selectImage() }
         let point = gesture.location(in: superview)
         let delta = CGPoint(x: point.x - dragStart.x, y: point.y - dragStart.y)

@@ -1,0 +1,22 @@
+{
+  "ipa": "build/artifacts/OpenNotes-ipados16-goodnotes-build11-unsigned.ipa",
+  "sha256": "c98745e8ca1ba8e840750adff36c8fa1abc5127616422f7999e8ec423d26f328",
+  "bytes": 4519244,
+  "bundleIdentifier": "fr.catnotes.app",
+  "version": "0.1.0",
+  "build": "11",
+  "minimumOS": "16.0",
+  "signed": false,
+  "architecture": "arm64",
+  "sourceTreeSHA256": "df2cdc355539a294a7b649abb26facd870d828a734e58ea12c88147becb92e8d",
+  "unitTests": {
+    "xctest": 178,
+    "swiftTesting": 7,
+    "failures": 0
+  },
+  "uiTests": {
+    "count": 2,
+    "failures": 0
+  },
+  "specificationParity": "partial; see IMPLEMENTATION_REPORT.md"
+}

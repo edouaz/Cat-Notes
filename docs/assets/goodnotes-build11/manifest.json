@@ -1,0 +1,59 @@
+[
+  {
+    "attachments": [
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "DB793DDF-5123-499E-BEF4-2ED940550098",
+        "deviceName": "iPad Pro 13-inch (M5)",
+        "exportedFileName": "C190FA35-8E93-4062-92AE-DAE729A0C948.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "Redesigned library list_0_E303A153-8B54-4342-9BA7-43E4949C5E7D.png",
+        "timestamp": 1793282886.219
+      }
+    ],
+    "testIdentifier": "GoodnotesUIIntegrationTests/testCreationReadOnlyPaletteAndLibraryList()",
+    "testIdentifierURL": "test://com.apple.xcode/OpenNotes/OpenNotesUITests/GoodnotesUIIntegrationTests/testCreationReadOnlyPaletteAndLibraryList"
+  },
+  {
+    "attachments": [
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "DB793DDF-5123-499E-BEF4-2ED940550098",
+        "deviceName": "iPad Pro 13-inch (M5)",
+        "exportedFileName": "7673EA34-5E85-4DA2-AC32-EE41BA1E025F.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "Native ink \u2014 persisted page after process relaunch_0_0DC20FC3-94C0-4794-A9D1-04FB53F432DC.png",
+        "timestamp": 1793282927.474
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "DB793DDF-5123-499E-BEF4-2ED940550098",
+        "deviceName": "iPad Pro 13-inch (M5)",
+        "exportedFileName": "1DA5F946-D2B3-4783-9FEC-3B22F8147008.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "Native pen options \u2014 pattern and stabilization_0_28657172-5DD8-4AB1-B1D4-9B0ED4842655.png",
+        "timestamp": 1793282915.542
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "DB793DDF-5123-499E-BEF4-2ED940550098",
+        "deviceName": "iPad Pro 13-inch (M5)",
+        "exportedFileName": "76CD32DC-5C0C-45A4-8F7D-E258479680D8.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "Native UIView ink \u2014 redo restored_0_D938D584-9200-4C52-95E8-C176D2336BB0.png",
+        "timestamp": 1793282911.871
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "DB793DDF-5123-499E-BEF4-2ED940550098",
+        "deviceName": "iPad Pro 13-inch (M5)",
+        "exportedFileName": "EBB51EC3-3283-4F16-B843-FAA1166818EE.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "Native UIView ink \u2014 actual finger stroke_0_F52D70FA-6502-4F4E-8489-AFC8BAEF5553.png",
+        "timestamp": 1793282908.718
+      }
+    ],
+    "testIdentifier": "NativeInkInteractionUITests/testFingerInkUndoRedoAndReopen()",
+    "testIdentifierURL": "test://com.apple.xcode/OpenNotes/OpenNotesUITests/NativeInkInteractionUITests/testFingerInkUndoRedoAndReopen"
+  }
+]

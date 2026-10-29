@@ -14,7 +14,7 @@ final class CanvasInteractionUITests: XCTestCase {
         app.launch()
         if app.buttons["workspace.library"].waitForExistence(timeout: 5) { app.buttons["workspace.library"].tap() }
         XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10))
-        app.buttons["library.create"].tap()
+        app.buttons["library.create"].tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
     }
     override func tearDownWithError() throws {

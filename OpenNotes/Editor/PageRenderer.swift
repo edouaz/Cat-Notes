@@ -31,8 +31,15 @@ enum PageRenderer {
     }
     static func elements(_ page: NotePage, resources: [String: Data], context: CGContext, images: [String: UIImage], drewPDF: Bool) {
         let bounds = CGRect(origin: .zero, size: size(page))
-        for item in page.elements ?? [] {
+        for item in (page.elements ?? []).enumerated().sorted(by: { ($0.element.zIndex ?? Double($0.offset)) < ($1.element.zIndex ?? Double($1.offset)) }).map(\.element) {
+            if let parent = item.parentID, page.elements?.contains(where: { $0.id == parent && $0.collapsed == true }) == true { continue }
+            context.saveGState()
+            defer { context.restoreGState() }
             let rect = CGRect(x: item.x, y: item.y, width: item.width, height: item.height)
+            if let angle = item.rotation, angle != 0 {
+                let center = item.collapsed == true ? CGPoint(x: item.x + 22, y: item.y + 22) : CGPoint(x: rect.midX, y: rect.midY)
+                context.translateBy(x: center.x, y: center.y); context.rotate(by: angle); context.translateBy(x: -center.x, y: -center.y)
+            }
             (item.strokeColorHex.flatMap(UIColor.init(presetHex:)) ?? .black).setStroke()
             context.setLineWidth(item.strokeWidth.flatMap { $0.isFinite ? min(32, max(0.5, $0)) : nil } ?? 2)
             switch item.kind {
@@ -41,11 +48,12 @@ enum PageRenderer {
                 if !drewPDF { UIColor.systemYellow.withAlphaComponent(0.3).setFill(); context.fill(rect) }
             case .stickyNote:
                 let noteRect = item.collapsed == true ? CGRect(x: item.x, y: item.y, width: 44, height: 44) : rect
-                UIColor(red: 1, green: 0.92, blue: 0.5, alpha: 1).setFill(); context.fill(noteRect)
+                (item.fillColorHex.flatMap(UIColor.init(presetHex:)) ?? UIColor(red: 1, green: 0.92, blue: 0.5, alpha: 1)).setFill(); context.fill(noteRect)
                 if item.collapsed == true {
                     UIImage(systemName: "arrow.up.left.and.arrow.down.right")?.withTintColor(.darkGray, renderingMode: .alwaysOriginal).draw(in: noteRect.insetBy(dx: 12, dy: 12))
                 } else {
-                    (item.text as NSString).draw(in: noteRect.insetBy(dx: 8, dy: 8), withAttributes: [.font: UIFont.systemFont(ofSize: 16), .foregroundColor: UIColor.black])
+                    context.clip(to: noteRect)
+                    RichTextDocument.attributed(item).draw(with: noteRect.insetBy(dx: 8, dy: 8), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
                 }
             case .text:
                 let fontSize = item.textFontSize.flatMap { $0.isFinite ? min(96, max(8, $0)) : nil } ?? 20
@@ -76,6 +84,7 @@ enum PageRenderer {
         }
     }
     static func composite(_ page: NotePage, data: Data?, drawing: InkDrawing?, resources: [String: Data] = [:], context: CGContext, pdfPage: CGPDFPage? = nil, images: [String: UIImage] = [:], inkScale: CGFloat = 2, inkRect: CGRect? = nil) {
+        let drawing = drawing?.visible(on: page)
         let reference = pdfPage ?? page.pdfIndex.flatMap { index in data.flatMap { PDFDocument(data: $0)?.page(at: index)?.pageRef } }
         let markers = reference == nil ? [] : drawing?.strokes.filter { $0.ink.inkType == .marker } ?? []
         background(page, data: data, resources: resources, context: context, pdfPage: reference, images: images,

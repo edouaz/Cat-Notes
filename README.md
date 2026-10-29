@@ -6,9 +6,11 @@
 
 A native, open-source notebook for iPad and iPhone, built with SwiftUI, UIKit, Core Graphics and PDFKit. Write by hand, annotate PDFs and keep your notebooks on your device. No account or external package is needed for local use.
 
-**Current source · 0.1.0 / build 10 · iOS & iPadOS 16+**
+**Current source · 0.1.0 / build 11 · iOS & iPadOS 16+**
 
 The published download below remains the older build 9 prototype.
+
+Build 11 integrates the redesigned library/editor, vector precision erasing, lasso transformations and mixed clipboard, and editable rich-text sticky notes. Local unsigned artifact and validation/remaining differences are recorded in [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md). Ink schema 1 remains readable; new writes use schema 2 and preserve original schema-1 resources in `ink-schema-backups` before rewriting. Existing PencilKit incompatibility from build 10 still applies.
 
 [Explore the website](https://edouaz.github.io/OpenNotes/) · [Download the IPA](https://github.com/edouaz/OpenNotes/releases/download/v0.1.0-prototype.9/OpenNotes-ios16-build9-unsigned.ipa) · [Installation & development](https://edouaz.github.io/OpenNotes/develop.html) · [Contribute](CONTRIBUTING.md)
 

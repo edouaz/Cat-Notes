@@ -12,6 +12,11 @@ struct LibraryScreen: View {
     @State private var lastOpening: Task<Void, Never>?
     @State private var path: [UUID] = []
     @State private var query = ""
+    @State private var newNotebookShown = false
+    @State private var selectingNotes = false
+    @State private var selectedNotes: Set<UUID> = []
+    @AppStorage("libraryLayout") private var layout = "grid"
+    @AppStorage("appearance") private var appearance = "system"
     @State private var filter = 0
     private var trash: Bool { filter == 2 }
     private var favorites: Bool { filter == 1 }
@@ -41,10 +46,13 @@ struct LibraryScreen: View {
     var body: some View {
         NavigationStack(path: $path) {
             presentedLibrary
-        }
+        }.preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
     }
     private var navigationContent: some View {
-        libraryContent
+        HStack(spacing: 0) {
+            if sizeClass == .regular { libraryRail.frame(width: 206); Divider() }
+            libraryContent
+        }
         .navigationTitle(trash ? "Trash" : favorites ? "Favorites" : selectedFolderID.flatMap { id in store.library.folders.first(where: { $0.id == id })?.name } ?? "Notebooks")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "Search notebooks")
@@ -61,11 +69,21 @@ struct LibraryScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Import", systemImage: "square.and.arrow.down") { importer = true }
+                    Button("New notebook", systemImage: "plus") { newNotebookShown = true }
                     Button("New folder", systemImage: "folder.badge.plus") { renamedFolder = nil; folderEditorShown = true }
                     Picker("Show", selection: $filter) {
                         Text("Notebooks").tag(0)
                         Text("Favorites").tag(1)
                         Text("Trash").tag(2)
+                    }
+                    Picker("Layout", selection: $layout) {
+                        Text("Grid").tag("grid")
+                        Text("List").tag("list")
+                    }
+                    Picker("Appearance", selection: $appearance) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
                     }
                     Picker("Sort", selection: $sort) {
                         Text("Recently edited").tag("date")
@@ -126,6 +144,9 @@ struct LibraryScreen: View {
                 }
                 if !store.ready { Button("Restore backup copy") { Task { await store.restore() } } }
             } message: { Text(store.error ?? "") }
+            .sheet(isPresented: $newNotebookShown) {
+                NewNotebookSheet(store: store, folderID: currentFolderID, created: openNotebook)
+            }
             .sheet(isPresented: $folderEditorShown) {
                 FolderNameSheet(name: renamedFolder?.name ?? "", title: renamedFolder == nil ? "New folder" : "Rename folder") { name in
                     let action = LibraryAction(kind: renamedFolder == nil ? .createFolder : .renameFolder, folderID: renamedFolder?.id, parentID: currentFolderID, name: name)
@@ -142,7 +163,18 @@ struct LibraryScreen: View {
     private var libraryContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if !trash { newNoteButton.disabled(!store.ready) }
+                libraryHeader
+                if !trash { libraryControls }
+                if selectingNotes && !selectedNotes.isEmpty {
+                    HStack {
+                        Text("\(selectedNotes.count) selected").font(.subheadline)
+                        Spacer()
+                        Button("Move to…", systemImage: "folder") {
+                            movingFolder = nil; movingDocuments = Array(selectedNotes); moveShown = true
+                            selectingNotes = false; selectedNotes = []
+                        }.accessibilityIdentifier("library.move")
+                    }.padding(12).background(OpenNotesStyle.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                }
                 if filter == 0 && query.isEmpty && selectedFolderID != nil { folderBreadcrumbs }
                 if !store.ready { ProgressView("Opening library…") }
                 else if notes.isEmpty && folders.isEmpty {
@@ -153,12 +185,96 @@ struct LibraryScreen: View {
                         if !query.isEmpty { Button("Clear search") { query = "" }.frame(minHeight: 44) }
                     }.frame(maxWidth: .infinity).padding(.vertical, 56)
                 }
-                LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 190), spacing: 24)], alignment: .leading, spacing: 24) {
-                    ForEach(folders) { folder in folderCard(folder) }
-                    ForEach(notes) { note in noteCard(note) }
+                if layout == "list" {
+                    LazyVStack(spacing: 8) {
+                        ForEach(folders) { folder in folderRow(folder) }
+                        ForEach(notes) { note in noteRow(note) }
+                    }.accessibilityIdentifier("library.list")
+                } else {
+                    LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 174, maximum: 245), spacing: 20)], alignment: .leading, spacing: 24) {
+                        ForEach(folders) { folder in folderCard(folder) }
+                        ForEach(notes) { note in noteCard(note) }
+                    }.accessibilityIdentifier("library.grid")
                 }
             }.padding(dynamicTypeSize.isAccessibilitySize || sizeClass != .regular ? 16 : 28)
         }.frame(maxWidth: .infinity).background(Color(uiColor: .systemGroupedBackground))
+    }
+    private var libraryHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(trash ? "Trash" : favorites ? "Favorites" : selectedFolderID.flatMap { id in store.library.folders.first { $0.id == id }?.name } ?? "Your notebooks")
+                .font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+            Text(trash ? "Restore notebooks whenever you need them." : "\(notes.count) notebooks · All your ideas, together.")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }.padding(.top, 8)
+    }
+    private var libraryControls: some View {
+        ViewThatFits {
+            HStack(spacing: 12) { newNoteButton; Spacer(); libraryViewControls }
+            VStack(alignment: .leading, spacing: 12) { newNoteButton; libraryViewControls }
+        }
+    }
+    private var libraryViewControls: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Button("Documents") { filter = 0 }
+                Button("Favorites") { filter = 1 }
+                Button("Trash") { filter = 2 }
+            } label: { Label("Show", systemImage: "line.3.horizontal.decrease").fixedSize() }.accessibilityIdentifier("library.filter")
+            Button(selectingNotes ? "Done" : "Select") { selectingNotes.toggle(); selectedNotes = [] }.accessibilityIdentifier("library.select")
+            Picker("Library layout", selection: $layout) {
+                Image(systemName: "square.grid.2x2").tag("grid")
+                Image(systemName: "list.bullet").tag("list")
+            }.pickerStyle(.segmented).frame(width: 100).accessibilityIdentifier("library.layout")
+        }.frame(minHeight: 44)
+    }
+    private var libraryRail: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("OpenNotes", systemImage: "book.closed.fill").font(.title2.bold()).padding(.vertical, 24)
+            ForEach(Array(["Documents", "Favorites", "Trash"].enumerated()), id: \.offset) { index, name in
+                Button { filter = index; selectedFolderID = nil } label: {
+                    Label(name, systemImage: ["square.grid.2x2", "star", "trash"][index])
+                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading).padding(.horizontal, 12)
+                        .foregroundStyle(filter == index ? OpenNotesStyle.accent : .secondary)
+                        .background(filter == index ? OpenNotesStyle.accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                }.buttonStyle(.plain).accessibilityAddTraits(filter == index ? .isSelected : [])
+            }
+            Divider().padding(.vertical, 12)
+            Button { importer = true } label: { Label("Import document", systemImage: "square.and.arrow.down").frame(minHeight: 44) }
+            Button { renamedFolder = nil; folderEditorShown = true } label: { Label("New folder", systemImage: "folder.badge.plus").frame(minHeight: 44) }
+            Spacer()
+            CloudStatusLine(cloud: store.cloud).padding(.bottom, 20)
+        }.padding(.horizontal, 18).background(OpenNotesStyle.rail)
+    }
+    private func toggleSelection(_ id: UUID) {
+        if selectedNotes.contains(id) { selectedNotes.remove(id) } else { selectedNotes.insert(id) }
+    }
+    private func folderRow(_ folder: NotebookFolder) -> some View {
+        HStack {
+            Button { selectedFolderID = folder.id } label: {
+                Label(folder.name, systemImage: "folder.fill").frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            }.buttonStyle(.plain).accessibilityIdentifier("library.folder.\(folder.id.uuidString)")
+            Menu { folderActions(folder) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Actions for \(folder.name)")
+        }.padding(.horizontal, 14).background(OpenNotesStyle.chrome, in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func noteRow(_ note: NoteDocument) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                if selectingNotes { toggleSelection(note.id) } else if !trash { openNotebook(note.id) }
+            } label: {
+                HStack(spacing: 14) {
+                    if let page = store.library.firstPage(in: note.id) { PageThumbnail(page: page, disk: store.disk).frame(width: 40, height: 54).accessibilityHidden(true) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(note.title).font(.headline).foregroundStyle(.primary)
+                        Text("\(note.pageIDs.count) pages · \(note.updatedAt.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if note.favorite == true { Image(systemName: "star.fill").foregroundStyle(.orange) }
+                    if selectingNotes { Image(systemName: selectedNotes.contains(note.id) ? "checkmark.circle.fill" : "circle") }
+                }.frame(minHeight: 68).contentShape(Rectangle())
+            }.buttonStyle(.plain).disabled(trash).accessibilityLabel(note.title).accessibilityIdentifier("library.note.\(note.id.uuidString)")
+                .accessibilityValue(trash ? "In Trash" : selectedNotes.contains(note.id) ? "Selected" : "")
+            Menu { noteActions(note) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Actions for \(note.title)")
+        }.padding(12).background(OpenNotesStyle.chrome, in: RoundedRectangle(cornerRadius: 12)).contextMenu { noteActions(note) }
     }
     private func cardTitle(_ title: String) -> some View {
         Group {
@@ -203,20 +319,22 @@ struct LibraryScreen: View {
     private func noteCard(_ note: NoteDocument) -> some View {
         return VStack(alignment: .leading, spacing: 8) {
             Button {
-                if !trash { openNotebook(note.id) }
+                if selectingNotes { toggleSelection(note.id) }
+                else if !trash { openNotebook(note.id) }
             } label: {
                 VStack(alignment: .leading, spacing: 12) {
                     Group {
                         if let page = store.library.firstPage(in: note.id) { PageThumbnail(page: page, disk: store.disk) }
                         else { Image(systemName: "doc").resizable().scaledToFit().foregroundStyle(.tertiary) }
-                    }.padding(12).frame(maxWidth: .infinity).frame(height: 192)
-                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                    }.padding(14).frame(maxWidth: .infinity).frame(height: 202)
+                        .background(Color(UIColor(presetHex: note.colorHex ?? "") ?? .secondarySystemBackground).opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(Color(UIColor(presetHex: note.colorHex ?? "#315BB1") ?? .systemBlue)).frame(width: 5).padding(.vertical, 8) }
                         .accessibilityHidden(true)
                     cardTitle(note.title)
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(trash)
                 .accessibilityLabel(note.title)
-                .accessibilityValue(trash ? "In Trash" : "")
+                .accessibilityValue(trash ? "In Trash" : selectedNotes.contains(note.id) ? "Selected" : "")
                 .accessibilityIdentifier("library.note.\(note.id.uuidString)")
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -224,6 +342,7 @@ struct LibraryScreen: View {
                     Text(note.updatedAt, style: .date)
                 }.font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
+                if selectingNotes { Image(systemName: selectedNotes.contains(note.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(OpenNotesStyle.accent) }
                 if note.favorite == true { Image(systemName: "star.fill").foregroundStyle(.orange).accessibilityLabel("Favorite") }
                 Menu { noteActions(note) } label: {
                     Label("Actions for \(note.title)", systemImage: "ellipsis").labelStyle(.iconOnly)
@@ -284,13 +403,10 @@ struct LibraryScreen: View {
         }
     }
     private var newNoteButton: some View {
-        Button { createNote() } label: { Label("New notebook", systemImage: "plus").fixedSize(horizontal: false, vertical: true).foregroundStyle(Color(uiColor: .systemBackground)) }
+        Button { newNotebookShown = true } label: { Label("New notebook", systemImage: "plus").fixedSize(horizontal: false, vertical: true).foregroundStyle(Color(uiColor: .systemBackground)) }
             .labelStyle(.titleAndIcon).buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle).controlSize(.large)
             .accessibilityIdentifier("library.create")
             .keyboardShortcut("n", modifiers: .command)
-    }
-    private func createNote() {
-        Task { if let id = await store.create(folderID: currentFolderID) { openNotebook(id) } }
     }
     @ViewBuilder private func noteActions(_ note: NoteDocument) -> some View {
         if trash {

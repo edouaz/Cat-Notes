@@ -10,7 +10,7 @@ final class ToolInteractionTests: XCTestCase {
         defer { app.terminate() }
         if app.buttons["workspace.library"].waitForExistence(timeout: 5) { app.buttons["workspace.library"].tap() }
         XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10))
-        app.buttons["library.create"].tap()
+        app.buttons["library.create"].tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(app.scrollViews["editor.canvas"].waitForExistence(timeout: 10))
         for id in ["editor.pages", "editor.search", "editor.insert", "editor.share", "editor.image", "editor.sticky"] {
             XCTAssertTrue(app.buttons[id].isHittable, id)

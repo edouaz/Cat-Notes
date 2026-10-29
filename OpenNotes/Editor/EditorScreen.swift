@@ -10,6 +10,9 @@ struct EditorScreen: View {
     @AppStorage("fingerDrawing") private var finger = false
     @AppStorage("verticalPaging") private var verticalPaging = false
     @State private var annotationsShown = false
+    @State private var insertionShown = false
+    @AppStorage("toolPaletteDock") private var paletteDock = "top"
+    @AppStorage("toolPaletteVisible") private var paletteVisible = true
     @State private var searchShown = false
     @State private var stickyNote: PageElement?
     @State private var textElement: PageElement?
@@ -51,15 +54,24 @@ struct EditorScreen: View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 quickActions
-                WritingInstrumentBar(session: session)
+                if !session.isReadOnly {
+                    WritingInstrumentBar(session: session, insert: { insertionShown = true }, sticky: insertSticky)
+                }
                 if selecting || editingImages { modeBanner }
+                if session.stickyInsertionColor != nil {
+                    HStack {
+                        Label("Tap the page to place a sticky note", systemImage: "note.text").font(.subheadline)
+                        Spacer()
+                        Button("Cancel") { session.stickyInsertionColor = nil }.frame(minHeight: 44)
+                    }.padding(.horizontal, 16).background(OpenNotesStyle.accent.opacity(0.08))
+                }
                 HStack(spacing: 0) {
                     if pagesShown && geometry.size.width >= 700 {
                         pagePanel(closeOnSelection: false)
                             .frame(width: min(280, geometry.size.width * 0.3))
                         Divider()
                     }
-                    canvasWorkspace
+                    dockedCanvas
                 }
             }
             .sheet(isPresented: Binding(get: { pagesShown && geometry.size.width < 700 }, set: { pagesShown = $0 })) { pageList }
@@ -79,8 +91,8 @@ struct EditorScreen: View {
                 Task { await session.flush(); UIApplication.shared.endBackgroundTask(taskID) }
             }
         }
-        .onDisappear { finishMode(); session.cancelPreparation(); session.cancelOCR(); Task { await session.flush() } }
-        .onChange(of: session.page?.id) { _ in finishMode() }
+        .onDisappear { session.stickyInsertionColor = nil; finishMode(); session.cancelPreparation(); session.cancelOCR(); Task { await session.flush() } }
+        .onChange(of: session.page?.id) { _ in session.stickyInsertionColor = nil; finishMode() }
         .task(id: neighboringPages) {
             previousPreview = nil; nextPreview = nil
             let index = currentIndex; let ordered = pages
@@ -98,20 +110,28 @@ struct EditorScreen: View {
             }
             Button("Cancel", role: .cancel) { }
         }
+        .confirmationDialog("Insert", isPresented: $insertionShown, titleVisibility: .visible) {
+            Button("Image") { elementsShown = true }
+            Button("Text box") { textElement = PageElement(kind: .text, text: "") }
+            Button("Shape") { shapeElement = PageElement(kind: .rectangle) }
+            Button("Sticky note", action: insertSticky)
+            Button("Capture an area") { finishMode(); selecting = true }
+            Button("Capture entire page") { capturePage() }
+        }
         .sheet(isPresented: $annotationsShown) { AnnotationsSheet(session: session) { item in
             Task { try? await Task.sleep(nanoseconds: 300_000_000); stickyNote = item }
         } }
         .sheet(isPresented: $searchShown) { DocumentSearchSheet(session: session, store: store) }
         .sheet(item: $stickyNote) { StickyNoteSheet(session: session, note: $0) }
-        .sheet(item: $textElement) { item in
+        .sheet(item: $textElement, onDismiss: { session.selectedTool = .lasso }) { item in
             if let page = session.page { TextElementSheet(session: session, pageID: page.id, element: item) }
         }
-        .sheet(item: $shapeElement) { item in
+        .sheet(item: $shapeElement, onDismiss: { session.selectedTool = .lasso }) { item in
             if let page = session.page { ShapeElementSheet(session: session, pageID: page.id, element: item) }
         }
         .sheet(isPresented: $captureShown) { [capture] in if let capture { CaptureSheet(image: capture) { Task { await session.insertImage(capture); beginImagePlacement() } } } }
         .sheet(isPresented: $paperShown) { PaperSheet(session: session) }
-        .sheet(isPresented: $elementsShown, onDismiss: { finishMode(); editingImages = session.page?.elements?.contains(where: { $0.kind == .image }) == true }) { ElementSheet(session: session) }
+        .sheet(isPresented: $elementsShown, onDismiss: { finishMode(); session.selectedTool = .lasso; editingImages = session.page?.elements?.contains(where: { $0.kind == .image }) == true }) { ElementSheet(session: session) }
         .sheet(isPresented: $exportShown) { exportForm }
         .sheet(item: $share) { ActivitySheet(url: $0.url) }
         .alert("OpenNotes", isPresented: Binding(get: { session.error != nil || store.error != nil }, set: { if !$0 { session.error = nil; store.error = nil } })) {
@@ -119,10 +139,49 @@ struct EditorScreen: View {
             Button("Close", role: .cancel) { session.error = nil; store.error = nil }
         } message: { Text(session.error ?? store.error ?? "") }
     }
+    private var dockedCanvas: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 8) {
+                if paletteVisible && !session.isReadOnly && paletteDock == "top" { palette(horizontal: true, size: geometry.size) }
+                HStack(spacing: 8) {
+                    if paletteVisible && !session.isReadOnly && paletteDock == "left" { palette(horizontal: false, size: geometry.size) }
+                    canvasWorkspace
+                    if paletteVisible && !session.isReadOnly && paletteDock == "right" { palette(horizontal: false, size: geometry.size) }
+                }
+                if paletteVisible && !session.isReadOnly && paletteDock == "bottom" { palette(horizontal: true, size: geometry.size) }
+            }.padding(paletteVisible && !session.isReadOnly ? 10 : 0).background(OpenNotesStyle.canvas)
+        }
+    }
+    private func palette(horizontal: Bool, size: CGSize) -> some View {
+        ScrollView(horizontal ? .horizontal : .vertical, showsIndicators: false) {
+            ActiveWritingPalette(session: session)
+                .simultaneousGesture(DragGesture(minimumDistance: 35).onEnded { gesture in
+                    let delta = gesture.translation
+                    if abs(delta.width) > abs(delta.height) { paletteDock = delta.width < 0 ? "left" : "right" }
+                    else { paletteDock = delta.height < 0 ? "top" : "bottom" }
+                })
+        }.frame(maxWidth: horizontal ? size.width : 108, maxHeight: horizontal ? 58 : size.height)
+    }
+    private func insertSticky() {
+        guard !session.isReadOnly else { return }
+        finishMode(); session.stickyInsertionColor = "#FFE66D"; paletteVisible = true
+    }
+    private func capturePage() {
+        guard let page = session.page else { return }
+        let data = session.backgroundData, drawing = session.drawing, resources = session.resources
+        Task {
+            do {
+                let image = try await Task.detached(priority: .userInitiated) {
+                    try PageRenderer.capture(page, data: data, drawing: drawing, resources: resources, rect: CGRect(origin: .zero, size: PageRenderer.size(page)), path: nil)
+                }.value
+                capture = image; captureShown = true
+            } catch { session.error = error.localizedDescription }
+        }
+    }
     private var canvasWorkspace: some View {
         Group {
             if session.page != nil {
-                WritingCanvas(session: session, finger: finger, reading: false, verticalPaging: verticalPaging, editingImages: editingImages, pageDirection: pageDirection,
+                WritingCanvas(session: session, finger: finger, reading: session.isReadOnly, verticalPaging: verticalPaging, editingImages: editingImages, pageDirection: pageDirection,
                     previousPreview: previousPreview, nextPreview: nextPreview,
                     hasPrevious: currentIndex > 0, hasNext: currentIndex + 1 < pages.count,
                     selectionMode: selecting, immediateSelection: selectionKind != nil, selectedRect: selectRegion, pasted: { finishMode() }, editNote: { stickyNote = $0 },
@@ -152,11 +211,21 @@ struct EditorScreen: View {
             .accessibilityIdentifier("editor.pages")
             .accessibilityValue("Page \(currentIndex + 1) of \(pages.count)")
             .accessibilityAddTraits(pagesShown ? .isSelected : [])
+            Button { searchShown = true } label: { Label("Search", systemImage: "magnifyingglass") }
+                .accessibilityIdentifier("editor.search")
+            Button {
+                Task {
+                    guard await session.flush() else { return }
+                    finishMode(); session.stickyInsertionColor = nil; session.isReadOnly.toggle()
+                }
+            } label: { Label(session.isReadOnly ? "Enable editing" : "Read only", systemImage: session.isReadOnly ? "lock.fill" : "pencil.line") }
+                .accessibilityIdentifier("editor.readOnly").accessibilityAddTraits(session.isReadOnly ? .isSelected : [])
             Text(store.library.note(id: noteID)?.title ?? "Notebook")
                 .font(.headline).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
             Button { Task { await quickAddPage() } } label: {
                 Label("Add page", systemImage: "doc.badge.plus")
-            }.disabled(session.busy).accessibilityIdentifier("editor.addPage")
+            }.disabled(session.busy || session.isReadOnly).accessibilityIdentifier("editor.addPage")
+            Button { first = 1; last = pages.count; exportShown = true } label: { Label("Share and export", systemImage: "square.and.arrow.up") }.accessibilityIdentifier("editor.export")
             actionsMenu
         }.labelStyle(.iconOnly).dynamicTypeSize(...DynamicTypeSize.xxxLarge).buttonStyle(ToolButtonStyle()).padding(.horizontal, 8)
             .background(Color(uiColor: .systemBackground))
@@ -202,7 +271,7 @@ struct EditorScreen: View {
     }
     private func beginImagePlacement() {
         finishMode()
-        if session.selectedTool == .lasso { session.selectedTool = .pen }
+        session.selectedTool = .lasso
         editingImages = true
     }
     private var actionsMenu: some View {
@@ -215,7 +284,7 @@ struct EditorScreen: View {
             if !session.searchHighlights.isEmpty {
                 Button("Clear search results") { session.searchHighlights = [] }
             }
-            Button("Change paper", systemImage: "doc") { paperShown = true }
+            Button("Change paper", systemImage: "doc") { paperShown = true }.disabled(session.isReadOnly)
             Button("Export notebook", systemImage: "square.and.arrow.up") {
                 first = 1; last = pages.count; exportShown = true
             }.accessibilityIdentifier("editor.share")
@@ -225,20 +294,20 @@ struct EditorScreen: View {
             Toggle("Recognize shapes", isOn: $session.toolSettings.shapeRecognitionEnabled)
             // Older notebooks may contain attachments; keep them editable.
             if session.page?.elements?.isEmpty == false {
-                Button("Page attachments", systemImage: "paperclip") { elementsShown = true }
-                Button("Page annotations", systemImage: "note.text") { annotationsShown = true }
+                Button("Page attachments", systemImage: "paperclip") { elementsShown = true }.disabled(session.isReadOnly)
+                Button("Page annotations", systemImage: "note.text") { annotationsShown = true }.disabled(session.isReadOnly)
                 ForEach((session.page?.elements ?? []).filter { $0.kind == .text }) { item in
-                    Button("Edit text: \(item.text.prefix(40))") { textElement = item }
+                    Button("Edit text: \(item.text.prefix(40))") { textElement = item }.disabled(session.isReadOnly)
                 }
                 ForEach((session.page?.elements ?? []).filter { ShapeElementSheet.kinds.contains($0.kind) }) { item in
-                    Button("Edit \(ShapeElementSheet.title(item.kind))") { shapeElement = item }
+                    Button("Edit \(ShapeElementSheet.title(item.kind))") { shapeElement = item }.disabled(session.isReadOnly)
                 }
             }
         } label: { Label("Notebook actions", systemImage: "ellipsis").labelStyle(.iconOnly) }
             .accessibilityIdentifier("editor.actions")
     }
     @discardableResult private func quickAddPage(before: Bool = false) async -> Bool {
-        guard !session.busy, await session.flush(), let current = session.page,
+        guard !session.isReadOnly, !session.busy, await session.flush(), let current = session.page,
               let id = await store.addPage(noteID: noteID, after: current.id) else { return false }
         if var page = store.library.page(id: id) {
             page.width = current.width; page.height = current.height; page.template = current.template
@@ -249,7 +318,7 @@ struct EditorScreen: View {
         return session.page?.id == id
     }
     private func selectRegion(_ rect: CGRect, _ path: UIBezierPath, _ action: PageSelectionAction) {
-        guard let page = session.page else { return }
+        guard !session.isReadOnly, let page = session.page else { return }
         if action == .enlarge || action == .shrink || action == .deleteContent {
             Task {
                 if await session.transformSelection(inside: path, scale: action == .enlarge ? 1.1 : 0.9, deleting: action == .deleteContent) { finishMode() }
@@ -271,7 +340,7 @@ struct EditorScreen: View {
             let drawing = session.drawing; let data = session.backgroundData; let resources = session.resources
             Task {
                 do {
-                    let image = try await Task.detached(priority: .userInitiated) { try PageRenderer.capture(page, data: data, drawing: drawing, resources: resources, rect: rect, path: path) }.value
+                    let image = try await Task.detached(priority: .userInitiated) { try PageRenderer.capture(page, data: data, drawing: drawing, resources: resources, rect: rect, path: nil) }.value
                     finishMode()
                     if action == .copyPhoto { UIPasteboard.general.image = image }
                     else { capture = image; captureShown = true }
@@ -295,7 +364,7 @@ struct EditorScreen: View {
                 Text("Pages").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
                 Button { pagePanelEditing.toggle() } label: {
                     Label("Reorder pages", systemImage: "arrow.up.arrow.down").labelStyle(.iconOnly).frame(width: 44, height: 44)
-                }.accessibilityAddTraits(pagePanelEditing ? .isSelected : [])
+                }.accessibilityAddTraits(pagePanelEditing ? .isSelected : []).disabled(session.isReadOnly)
                 Button { pagesShown = false } label: {
                     Label("Close previews", systemImage: "xmark").labelStyle(.iconOnly).frame(width: 44, height: 44)
                 }.accessibilityIdentifier("editor.pages.close")
@@ -316,26 +385,26 @@ struct EditorScreen: View {
                         }.buttonStyle(.plain)
                         Menu { pageActions(page) } label: {
                             Label("Page actions", systemImage: "ellipsis").labelStyle(.iconOnly).frame(width: 44, height: 44)
-                        }.accessibilityLabel("Actions for page \(page.index + 1)")
+                        }.accessibilityLabel("Actions for page \(page.index + 1)").disabled(session.isReadOnly)
                     }.padding(.vertical, 4).contextMenu { pageActions(page) }
                 }
                 .onMove { offsets, destination in
-                    guard let source = offsets.first else { return }
+                    guard !session.isReadOnly, let source = offsets.first else { return }
                     store.movePage(pages[source].id, index: destination > source ? destination - 1 : destination)
                 }
             }.listStyle(.plain)
                 .environment(\.editMode, .constant(pagePanelEditing ? .active : .inactive))
                 .confirmationDialog("Delete this page?", isPresented: $deleteShown, titleVisibility: .visible) {
-                    Button("Delete", role: .destructive) { Task { if await session.flush(), let target = deletePageID, let id = store.removePage(target) { await session.open(id) } } }
+                    Button("Delete", role: .destructive) { Task { if !session.isReadOnly, await session.flush(), let target = deletePageID, let id = store.removePage(target) { await session.open(id) } } }
                 }
         }
     }
     @ViewBuilder private func pageActions(_ page: NotePage) -> some View {
         Button("Duplicate page", systemImage: "plus.square.on.square") {
-            Task { if await session.flush(), let id = await store.addPage(noteID: noteID, after: page.id, duplicate: true) { await session.open(id) } }
-        }
+            Task { if !session.isReadOnly, await session.flush(), let id = await store.addPage(noteID: noteID, after: page.id, duplicate: true) { await session.open(id) } }
+        }.disabled(session.isReadOnly)
         Button("Delete page", systemImage: "trash", role: .destructive) { deletePageID = page.id; deleteShown = true }
-            .disabled(pages.count < 2)
+            .disabled(pages.count < 2 || session.isReadOnly)
     }
     var exportForm: some View {
         NavigationStack {

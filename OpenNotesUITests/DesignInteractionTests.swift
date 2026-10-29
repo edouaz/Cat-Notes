@@ -431,6 +431,7 @@ final class DesignInteractionTests: XCTestCase {
         let create = app.buttons["library.create"]
         reveal(create, towardTop: true)
         create.tap()
+        XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(app.buttons["editor.insert"].waitForExistence(timeout: 10))
         app.buttons["workspace.library"].tap()
         XCTAssertTrue(app.buttons["library.select"].waitForExistence(timeout: 10))

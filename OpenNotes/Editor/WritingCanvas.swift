@@ -38,6 +38,10 @@ struct WritingCanvas: UIViewRepresentable {
     func updateUIView(_ view: PageScrollView, context: Context) {
         guard let page = session.page else { return }
         let canvas = view.canvas
+        canvas.lockedParentIDs = Set((page.elements ?? []).filter { $0.isLocked == true }.map(\.id))
+        canvas.hiddenStrokeIDs = Set(session.drawing.strokes.filter { stroke in
+            stroke.parentID.map { id in page.elements?.contains(where: { $0.id == id && $0.collapsed == true }) == true } ?? false
+        }.map(\.id))
         if view.pageSize != PageRenderer.size(page) { view.savePosition(); view.pageSize = PageRenderer.size(page); view.needsFit = true; view.setNeedsLayout() }
         context.coordinator.reading = reading
         context.coordinator.updateInteraction()
@@ -46,7 +50,11 @@ struct WritingCanvas: UIViewRepresentable {
         view.pageTurn.canPrevious = hasPrevious; view.pageTurn.canNext = hasNext
         view.pageTurn.addPage = addPage
         view.pageTurn.prepare = prepare
-        let selecting = selectionMode || (!reading && !editingImages && session.selectedTool == .lasso)
+        if reading { view.finishNoteEditing() }
+        let inlineEditing = view.editingInlineNoteID != nil
+        let insertingSticky = session.stickyInsertionColor != nil && !reading
+        view.stickyInsertionEnabled = insertingSticky
+        let selecting = !inlineEditing && !insertingSticky && (selectionMode || (!reading && !editingImages && session.selectedTool == .lasso))
         view.pageTurn.disabled = selecting || editingImages || session.busy || (!reading && session.selectedTool == .lasso)
         view.onImageEditingEnded = imageEditingEnded
         view.eraserCursorEnabled = !reading && !editingImages && !selecting && session.selectedTool == .eraser
@@ -59,6 +67,7 @@ struct WritingCanvas: UIViewRepresentable {
             coordinator.session.replaceDrawing(drawing, actionName: name)
             if coordinator.zoomWindow { coordinator.activeCanvas.drawing = drawing }
         }
+        canvas.onEraserEnded = { [weak session] in session?.finishErasing() }
         canvas.onStrokeBegan = { [weak coordinator = context.coordinator] in coordinator?.circle = nil }
         canvas.onEstimatedStrokeUpdate = { [weak session] drawing in
             guard let session else { return }
@@ -86,7 +95,7 @@ struct WritingCanvas: UIViewRepresentable {
         canvas.tool = session.tool
         canvas.isRulerActive = session.toolSettings.rulerEnabled == true && !reading && !editingImages && !selecting
         canvas.drawingPolicy = finger ? .anyInput : .pencilOnly
-        canvas.drawingGestureRecognizer.isEnabled = !reading && !editingImages && !selecting
+        canvas.drawingGestureRecognizer.isEnabled = !reading && !editingImages && !selecting && !insertingSticky && !inlineEditing
         if finger && !reading { view.pageTurn.disabled = true }
         if context.coordinator.pageID != page.id {
             canvas.cancelActiveStroke()
@@ -107,10 +116,33 @@ struct WritingCanvas: UIViewRepresentable {
             context.coordinator.loading = false
         }
         var paperPage = page
-        paperPage.elements?.removeAll { $0.kind == .stickyNote || (!selecting && $0.kind == .image) }
-        view.configureNotes(page, edit: editNote) { item, id in
+        // Static objects share the export renderer; interaction overlays do not repaint them.
+        if editingImages { paperPage.elements?.removeAll { $0.kind == .image } }
+        view.configureNotes(page, edit: reading ? nil : editNote) { item, id in
             Task { await session.apply(.init(pageID: page.id, kind: item == nil ? .removeElement : .upsertElement, element: item, elementID: id)) }
         }
+        view.onEditElement = editNote
+        view.onNoteDraft = { [weak session] note in session?.stageStickyEdit(note) }
+        view.onDirectSelection = { [weak view, weak session] point in
+            guard let view, let session, !session.isReadOnly, !reading, !finger, session.stickyInsertionColor == nil, let page = session.page else { return false }
+            let logical = CGPoint(x: (point.x + canvas.contentOffset.x) / canvas.zoomScale, y: (point.y + canvas.contentOffset.y) / canvas.zoomScale)
+            let hit = UIBezierPath(ovalIn: CGRect(x: logical.x - 4 / canvas.zoomScale, y: logical.y - 4 / canvas.zoomScale, width: 8 / canvas.zoomScale, height: 8 / canvas.zoomScale))
+            let snapshot = SelectionMoveSnapshot(page: page, drawing: canvas.drawing, path: hit, settings: session.toolSettings)
+            guard !snapshot.isEmpty else { return false }
+            session.selectedTool = .lasso
+            view.configureSelection(true, session: session, immediate: false, shape: session.toolSettings.lassoShape, moved: selectionMoved, selected: selectedRect)
+            let selection = UIBezierPath(rect: snapshot.bounds.insetBy(dx: -1, dy: -1))
+            selection.apply(CGAffineTransform(a: canvas.zoomScale, b: 0, c: 0, d: canvas.zoomScale, tx: -canvas.contentOffset.x, ty: -canvas.contentOffset.y))
+            view.installDirectSelection(selection)
+            return true
+        }
+        view.onInsertSticky = { [weak session] point in
+            guard let session, session.stickyInsertionColor != nil, !session.isReadOnly else { return false }
+            Task { await session.insertSticky(at: point) }
+            return true
+        }
+        view.noteInteractionEnabled = !reading && !selecting && !insertingSticky
+        view.imageInteractionEnabled = !reading && !insertingSticky
         view.showSearchHighlights(session.searchHighlights)
         view.paper.configure(page: paperPage, artwork: session.artwork)
         view.configureImages(!selecting ? page : nil, images: session.artwork?.images ?? [:], pencil: editingImages) { item, id in
@@ -124,6 +156,7 @@ struct WritingCanvas: UIViewRepresentable {
         view.onWindowReady = nil
         view.canvas.cancelActiveStroke()
         view.canvas.onCommit = nil; view.canvas.onCompletedStroke = nil
+        view.canvas.onEraserEnded = nil
         view.canvas.onStrokeBegan = nil; view.canvas.onEstimatedStrokeUpdate = nil
         view.canvas.canCircleLongPress = nil; view.canvas.onCircleLongPress = nil
         coordinator.container = nil
@@ -224,15 +257,32 @@ final class PageScrollView: UIView {
     private var imageViews: [ImageHandlesView] = []
     private var imagePage: NotePage?
     private var editingImages = false
+    var imageInteractionEnabled = true { didSet { imageViews.forEach { $0.isUserInteractionEnabled = imageInteractionEnabled } } }
+    var noteInteractionEnabled = true { didSet { noteViews.forEach { $0.isUserInteractionEnabled = noteInteractionEnabled } } }
     var onImageEditingEnded: (() -> Void)?
     private func selectImage(_ id: UUID?) { imageViews.forEach { $0.showsHandles = $0.item.id == id } }
     func deselectImages() { selectImage(nil); onImageEditingEnded?() }
-    @objc private func tappedBackground(_ tap: UITapGestureRecognizer) { deselectImages() }
+    var stickyInsertionEnabled = false {
+        didSet {
+            backgroundTap.allowedTouchTypes = stickyInsertionEnabled ? [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.pencil.rawValue)] : [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        }
+    }
+    var onDirectSelection: ((CGPoint) -> Bool)?
+    var onEditElement: ((PageElement) -> Void)?
+    var onNoteDraft: ((PageElement) -> Void)?
+    var onInsertSticky: ((CGPoint) -> Bool)?
+    @objc private func tappedBackground(_ tap: UITapGestureRecognizer) {
+        let point = tap.location(in: self)
+        let logical = CGPoint(x: (point.x + canvas.contentOffset.x) / canvas.zoomScale, y: (point.y + canvas.contentOffset.y) / canvas.zoomScale)
+        if onInsertSticky?(logical) == true { return }
+        if onDirectSelection?(point) == true { return }
+        deselectImages()
+    }
     func configureImages(_ page: NotePage?, images: [String: UIImage], pencil: Bool, changed: @escaping (PageElement?, UUID) -> Void) {
         let entering = pencil && !editingImages
         let leaving = !pencil && editingImages
         editingImages = pencil
-        imageViews.forEach { $0.editableWithPencil = pencil }
+        imageViews.forEach { $0.editableWithPencil = pencil; $0.editsDirectly = pencil; $0.preview.isHidden = !pencil }
         let sameImages = imagePage?.id == page?.id && imagePage.map(PageRenderer.size) == page.map(PageRenderer.size) &&
             imagePage?.elements?.filter { $0.kind == .image } == page?.elements?.filter { $0.kind == .image }
         let assetsChanged = imageViews.contains { view in view.item.resource.flatMap { images[$0] } !== view.preview.image }
@@ -247,9 +297,13 @@ final class PageScrollView: UIView {
         imageViews.forEach { $0.removeFromSuperview() }; imageViews.removeAll()
         for item in page?.elements ?? [] where item.kind == .image {
             let view = ImageHandlesView(item: item, image: item.resource.flatMap { images[$0] })
+            view.editsDirectly = pencil; view.preview.isHidden = !pencil
             view.pageSize = pageSize; view.editableWithPencil = pencil; view.showsHandles = !leaving && selected == item.id
             view.changed = { changed($0, item.id) }
-            view.selected = { [weak self] in self?.selectImage(item.id) }
+            view.selected = { [weak self, weak view] in
+                guard let self, let view else { return }
+                if self.onDirectSelection?(view.center) != true { self.selectImage(item.id) }
+            }
             imageViews.append(view); insertSubview(view, belowSubview: canvas)
         }
         if pencil, let added = imageViews.last(where: { !previousIDs.contains($0.item.id) }) { selectImage(added.item.id) }
@@ -259,6 +313,7 @@ final class PageScrollView: UIView {
     lazy var pageTurn = InteractivePageTurn(view: self)
     private var noteViews: [StickyNoteControl] = []
     private var notesPage: NotePage?
+    private(set) var editingInlineNoteID: UUID?
     private var selectionView: PageSelectionView?
     private(set) var selectionPreview: SelectionDragPreview?
     private var selectionCommitFinished = false
@@ -290,12 +345,87 @@ final class PageScrollView: UIView {
         selectionView?.frame = bounds
         selectionView?.immediate = immediate
         selectionView?.shape = shape
+        selectionView?.directSelection = { [weak self, weak session] point in
+            guard let self, let session, let page = session.page, !session.isReadOnly else { return nil }
+            let logical = CGPoint(x: (point.x + self.canvas.contentOffset.x) / self.canvas.zoomScale, y: (point.y + self.canvas.contentOffset.y) / self.canvas.zoomScale)
+            let hit = UIBezierPath(ovalIn: CGRect(x: logical.x - 4 / self.canvas.zoomScale, y: logical.y - 4 / self.canvas.zoomScale, width: 8 / self.canvas.zoomScale, height: 8 / self.canvas.zoomScale))
+            let snapshot = SelectionMoveSnapshot(page: page, drawing: self.canvas.drawing, path: hit, settings: session.toolSettings)
+            guard !snapshot.isEmpty else { return nil }
+            session.selectedTool = .lasso
+            let selected = UIBezierPath(rect: snapshot.bounds.insetBy(dx: -1, dy: -1))
+            selected.apply(CGAffineTransform(a: self.canvas.zoomScale, b: 0, c: 0, d: self.canvas.zoomScale, tx: -self.canvas.contentOffset.x, ty: -self.canvas.contentOffset.y))
+            return selected
+        }
+        selectionView?.transformCommitted = { [weak self, weak session] path, scale, scaleY, rotation, anchor in
+            guard let self, let session else { return }
+            let logical = self.logicalPath(path)
+            self.selectionCommitting = true; self.selectionRendered = false
+            self.selectionView?.isUserInteractionEnabled = false
+            let pageAnchor = CGPoint(x: (anchor.x + self.canvas.contentOffset.x) / self.canvas.zoomScale, y: (anchor.y + self.canvas.contentOffset.y) / self.canvas.zoomScale)
+            Task { @MainActor [weak self] in
+                let success = await session.affineSelection(inside: logical, scale: scale, rotation: rotation, scaleY: scaleY, anchor: pageAnchor)
+                guard let self else { return }
+                self.selectionCommitFinished = true
+                if !success || self.selectionRendered { self.clearSelectionPreview() }
+                if success {
+                    let a = cos(rotation) * scale, b = sin(rotation) * scale
+                    let c = -sin(rotation) * scaleY, d = cos(rotation) * scaleY
+                    let transformed = UIBezierPath(cgPath: path.cgPath)
+                    transformed.apply(CGAffineTransform(a: a, b: b, c: c, d: d, tx: anchor.x - a * anchor.x - c * anchor.y, ty: anchor.y - b * anchor.x - d * anchor.y))
+                    self.selectionView?.installSelection(transformed)
+                }
+            }
+        }
+        selectionView?.transformChanged = { [weak self] scale, scaleY, rotation, anchor in
+            guard let foreground = self?.selectionPreview?.foreground else { return }
+            let center = foreground.center
+            let a = cos(rotation) * scale, b = sin(rotation) * scale
+            let c = -sin(rotation) * scaleY, d = cos(rotation) * scaleY
+            let transformed = center.applying(CGAffineTransform(a: a, b: b, c: c, d: d, tx: anchor.x - a * anchor.x - c * anchor.y, ty: anchor.y - b * anchor.x - d * anchor.y))
+            foreground.transform = CGAffineTransform(a: a, b: b, c: c, d: d, tx: transformed.x - center.x, ty: transformed.y - center.y)
+        }
+        selectionView?.allowsFreeResize = { [weak self, weak session] path in
+            guard let self, let session, let page = session.page else { return false }
+            let snapshot = SelectionMoveSnapshot(page: page, drawing: self.canvas.drawing, path: self.logicalPath(path), settings: session.toolSettings)
+            guard !snapshot.containsLockedObjects, snapshot.ink.strokes.isEmpty, snapshot.elements.count == 1, let item = snapshot.elements.first else { return false }
+            return (item.kind == .stickyNote || item.kind == .text) && abs(item.rotation ?? 0) < 0.001
+        }
+        selectionView?.menuActions = { [weak self, weak session] path in
+            guard let self, let session, let page = session.page, let overlay = self.selectionView else { return [] }
+            let snapshot = SelectionMoveSnapshot(page: page, drawing: self.canvas.drawing, path: self.logicalPath(path), settings: session.toolSettings)
+            var actions: [UIMenuElement] = [overlay.action("Take Screenshot", symbol: "camera", kind: .preview)]
+            guard !snapshot.isEmpty else { return actions }
+            actions.insert(overlay.action("Copy", symbol: "doc.on.doc", kind: .copySelection), at: 0)
+            let locked = snapshot.containsLockedObjects
+            if !session.isReadOnly && !locked {
+                actions.insert(contentsOf: [overlay.action("Cut", symbol: "scissors", kind: .cutSelection), overlay.action("Duplicate", symbol: "plus.square.on.square", kind: .duplicateSelection)], at: 1)
+                actions.append(overlay.action("Delete", symbol: "trash", kind: .deleteContent, destructive: true))
+                if !snapshot.ink.strokes.isEmpty || snapshot.elements.contains(where: { $0.kind != .image }) {
+                    actions.append(overlay.action("Use Current Ink Color", symbol: "paintpalette", kind: .recolorSelection))
+                }
+                if !snapshot.elements.isEmpty && snapshot.ink.strokes.isEmpty {
+                    actions.append(overlay.action("Bring to Front", symbol: "square.3.layers.3d.top.filled", kind: .bringFront))
+                    actions.append(overlay.action("Send to Back", symbol: "square.3.layers.3d.bottom.filled", kind: .sendBack))
+                }
+            }
+            if !session.isReadOnly {
+                if !locked, snapshot.elements.count == 1, let item = snapshot.elements.first, item.kind == .stickyNote || item.kind == .text {
+                    actions.append(overlay.action("Edit Text", symbol: "text.cursor", kind: .editText))
+                    actions.append(overlay.action("Format Text…", symbol: "textformat", kind: .formatText))
+                }
+                actions.append(overlay.action(locked ? "Unlock" : "Lock", symbol: locked ? "lock.open" : "lock", kind: .lockSelection))
+                if !locked, snapshot.elements.contains(where: { $0.kind == .stickyNote }) {
+                    actions.append(overlay.action("Collapse / Expand", symbol: "rectangle.compress.vertical", kind: .collapseSelection))
+                }
+            }
+            return actions
+        }
         selectionView?.moveBegan = { [weak self, weak session] path in
             guard let self, let session, let page = session.page else { return }
             self.clearSelectionPreview()
             let snapshot = SelectionMoveSnapshot(page: page, drawing: self.canvas.drawing,
                                                  path: self.logicalPath(path), settings: session.toolSettings)
-            guard !snapshot.isEmpty, self.canvas.zoomScale > 0 else { return }
+            guard !snapshot.isEmpty, !snapshot.containsLockedObjects, self.canvas.zoomScale > 0 else { return }
             let preview = SelectionDragPreview(frame: self.bounds, page: page, artwork: session.artwork,
                                                drawing: self.canvas.drawing, snapshot: snapshot,
                                                zoom: self.canvas.zoomScale, offset: self.canvas.contentOffset)
@@ -319,6 +449,11 @@ final class PageScrollView: UIView {
                     if !success || logicalDelta == .zero || preview?.snapshot.ink.strokes.isEmpty != false || self.selectionRendered {
                         self.clearSelectionPreview()
                     }
+                    if success {
+                        let transformed = UIBezierPath(cgPath: path.cgPath)
+                        transformed.apply(CGAffineTransform(translationX: delta.x, y: delta.y))
+                        self.selectionView?.installSelection(transformed)
+                    }
                 }
             }
         }
@@ -326,18 +461,45 @@ final class PageScrollView: UIView {
             self?.pasteMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
         }
         selectionView?.pasteRequested = { [weak self] point in self?.requestPaste(at: point) }
-        selectionView?.selected = { [weak self] rect, path, action in
+        selectionView?.selected = { [weak self, weak session] rect, path, action in
             guard let self else { return }
             let logical = CGRect(x: (rect.minX + self.canvas.contentOffset.x) / self.canvas.zoomScale,
                                  y: (rect.minY + self.canvas.contentOffset.y) / self.canvas.zoomScale,
                                  width: rect.width / self.canvas.zoomScale, height: rect.height / self.canvas.zoomScale)
                 .intersection(CGRect(origin: .zero, size: self.pageSize))
             if !logical.isNull {
-                selected?(logical, self.logicalPath(path), action)
+                let pagePath = self.logicalPath(path)
+                switch action {
+                case .copySelection, .cutSelection, .duplicateSelection, .lockSelection, .collapseSelection, .bringFront, .sendBack, .recolorSelection:
+                    guard let session else { return }
+                    Task { await session.selectionAction(action, path: pagePath) }
+                    if action != .copySelection { self.selectionView?.clearSelection() }
+                case .editText:
+                    guard let session, let page = session.page else { return }
+                    let snapshot = SelectionMoveSnapshot(page: page, drawing: self.canvas.drawing, path: pagePath, settings: session.toolSettings)
+                    if let item = snapshot.elements.first, item.isLocked != true {
+                        if item.kind == .stickyNote, let note = self.noteViews.first(where: { $0.item.id == item.id }) {
+                            self.clearSelectionPreview(); self.selectionView?.clearSelection()
+                            self.selectionView?.removeFromSuperview(); self.selectionView = nil
+                            self.noteInteractionEnabled = true
+                            self.canvas.drawingGestureRecognizer.isEnabled = false
+                            note.beginInlineEditing()
+                        } else { self.onEditElement?(item) }
+                    }
+                case .formatText:
+                    guard let session, let page = session.page else { return }
+                    let snapshot = SelectionMoveSnapshot(page: page, drawing: self.canvas.drawing, path: pagePath, settings: session.toolSettings)
+                    if let item = snapshot.elements.first, item.isLocked != true { self.onEditElement?(item) }
+                case .preview, .copyPhoto:
+                    // The page screenshot is rectangular even for a freehand lasso.
+                    selected?(logical, UIBezierPath(rect: logical), action)
+                default: selected?(logical, pagePath, action)
+                }
             }
         }
         if let selectionView { bringSubviewToFront(selectionView) }
     }
+    func installDirectSelection(_ selection: UIBezierPath) { selectionView?.installSelection(selection) }
     func installCircleSelection(_ contour: [CGPoint]) {
         guard let first = contour.first else { return }
         let path = UIBezierPath(); path.move(to: first)
@@ -351,23 +513,40 @@ final class PageScrollView: UIView {
         result.apply(CGAffineTransform(a: 1 / zoom, b: 0, c: 0, d: 1 / zoom, tx: canvas.contentOffset.x / zoom, ty: canvas.contentOffset.y / zoom))
         return result
     }
+    func finishNoteEditing() {
+        for note in noteViews where note.isEditingInline { note.endInlineEditing() }
+        editingInlineNoteID = nil
+    }
     func configureNotes(_ page: NotePage, edit: ((PageElement) -> Void)?, changed: @escaping (PageElement?, UUID) -> Void) {
+        if notesPage?.id == page.id, let editing = noteViews.first(where: { $0.isEditingInline }),
+           let latest = page.elements?.first(where: { $0.id == editing.item.id }), latest.isLocked != true, latest.collapsed != true {
+            editing.item = latest
+            return
+        }
         guard notesPage?.id != page.id || notesPage.map(PageRenderer.size) != PageRenderer.size(page) ||
                 notesPage?.elements?.filter({ $0.kind == .stickyNote }) != page.elements?.filter({ $0.kind == .stickyNote }) else { return }
         notesPage = page
         noteViews.forEach { $0.removeFromSuperview() }; noteViews = []
         for item in page.elements ?? [] where item.kind == .stickyNote {
             let control = StickyNoteControl(item: item)
-            control.pageSize = pageSize; control.changed = { changed($0, item.id) }; control.edit = { edit?(item) }
-            noteViews.append(control); addSubview(control)
+            control.selectsBeforeEditing = true
+            control.draftChanged = { [weak self] note in self?.onNoteDraft?(note) }
+            control.inlineEditingChanged = { [weak self] editing in self?.editingInlineNoteID = editing ? item.id : nil }
+            control.pageSize = pageSize; control.changed = { changed($0, item.id) }
+            control.edit = { [weak self, weak control] in
+                guard let self, let control else { return }
+                if self.onDirectSelection?(control.center) != true { edit?(item) }
+            }
+            noteViews.append(control); insertSubview(control, belowSubview: canvas)
         }
         alignBackground()
     }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
         guard selectionView == nil, hit === canvas || hit?.isDescendant(of: canvas) == true else { return hit }
-        for image in imageViews.reversed() {
-            if let target = image.hitTest(convert(point, to: image), with: event) { return target }
+        let objects: [(Double, UIView)] = noteViews.map { ($0.item.zIndex ?? 0, $0 as UIView) } + imageViews.map { ($0.item.zIndex ?? 0, $0 as UIView) }
+        for (_, object) in objects.sorted(by: { $0.0 > $1.0 }) {
+            if let target = object.hitTest(convert(point, to: object), with: event) { return target }
         }
         return hit
     }
@@ -604,14 +783,18 @@ final class PageScrollView: UIView {
             note.zoom = canvas.zoomScale
             let width = note.item.collapsed == true ? 44 : note.item.width
             let height = note.item.collapsed == true ? 44 : note.item.height
+            note.transform = .identity
             note.frame = CGRect(x: note.item.x * canvas.zoomScale - canvas.contentOffset.x, y: note.item.y * canvas.zoomScale - canvas.contentOffset.y, width: max(44, width * canvas.zoomScale), height: max(44, height * canvas.zoomScale))
+            note.transform = CGAffineTransform(rotationAngle: note.item.rotation ?? 0)
             note.titleLabel?.font = .systemFont(ofSize: max(12, 16 * canvas.zoomScale))
         }
         selectionView?.frame = bounds
         if let selectionView { bringSubviewToFront(selectionView) }
         for view in imageViews {
             view.zoom = canvas.zoomScale
+            view.transform = .identity
             view.frame = CGRect(x: view.item.x * canvas.zoomScale - canvas.contentOffset.x, y: view.item.y * canvas.zoomScale - canvas.contentOffset.y, width: view.item.width * canvas.zoomScale, height: view.item.height * canvas.zoomScale)
+            view.transform = CGAffineTransform(rotationAngle: view.item.rotation ?? 0)
         }
     }
 }
@@ -619,7 +802,7 @@ final class PageScrollView: UIView {
 extension PageScrollView: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === backgroundTap else { return true }
-        guard selectionView == nil else { return false }
+        guard selectionView == nil || stickyInsertionEnabled else { return false }
         var target = touch.view
         while let view = target, view !== self {
             if view is ImageHandlesView || view is StickyNoteControl { return false }

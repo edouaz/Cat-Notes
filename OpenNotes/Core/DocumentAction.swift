@@ -25,16 +25,43 @@ struct DocumentAction: Codable, Sendable {
             page.elements = elements
         case .removeElement:
             guard let elementID else { throw CocoaError(.fileReadCorruptFile) }
-            page.elements?.removeAll { $0.id == elementID }
+            var removed: Set<UUID> = [elementID]
+            var previousCount = 0
+            while previousCount != removed.count {
+                previousCount = removed.count
+                for item in page.elements ?? [] where item.parentID.map({ removed.contains($0) }) == true { removed.insert(item.id) }
+            }
+            page.elements?.removeAll { removed.contains($0.id) }
         case .setElements:
             guard let elements, Set(elements.map(\.id)).count == elements.count,
                   elements.allSatisfy({ valid($0, on: page) }) else { throw CocoaError(.fileReadCorruptFile) }
             page.elements = elements
         }
+        guard Self.validHierarchy(page.elements ?? []) else { throw CocoaError(.fileReadCorruptFile) }
         return page
     }
 
-    private func valid(_ element: PageElement, on page: NotePage) -> Bool {
+    static func validHierarchy(_ elements: [PageElement]) -> Bool {
+        guard Set(elements.map(\.id)).count == elements.count else { return false }
+        let parents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.parentID) })
+        var checked: Set<UUID> = []
+        for item in elements {
+            var current: UUID? = item.id
+            var branch: Set<UUID> = []
+            while let id = current, !checked.contains(id) {
+                guard branch.insert(id).inserted else { return false }
+                current = parents[id] ?? nil
+            }
+            checked.formUnion(branch)
+        }
+        return true
+    }
+
+    func valid(_ element: PageElement, on page: NotePage) -> Bool {
+        element.parentID != element.id &&
+        (element.rotation.map { $0.isFinite && abs($0) <= 1_000_000 } ?? true) &&
+        (element.zIndex.map { $0.isFinite && abs($0) <= 1_000_000 } ?? true) &&
+        (element.richTextRTF.map { RichTextDocument.isValid($0, text: element.text) } ?? true) &&
         element.x.isFinite && element.y.isFinite && element.width.isFinite && element.height.isFinite &&
         element.x >= 0 && element.y >= 0 && element.width > 0 && element.height > 0 &&
         element.x + element.width <= (page.width ?? 794) + 0.01 &&

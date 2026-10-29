@@ -10,7 +10,7 @@ final class ContextualToolbarInteractionTests: XCTestCase {
         defer { app.terminate() }
         if app.buttons["workspace.library"].waitForExistence(timeout: 5) { app.buttons["workspace.library"].tap() }
         let create = app.buttons["library.create"]
-        XCTAssertTrue(create.waitForExistence(timeout: 10)); create.tap()
+        XCTAssertTrue(create.waitForExistence(timeout: 10)); create.tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(app.scrollViews["editor.canvas"].waitForExistence(timeout: 10))
 
         let undo = app.buttons["Undo"]

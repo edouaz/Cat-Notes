@@ -14,7 +14,7 @@ final class ToolSettingsTests: XCTestCase {
         await store.load()
         let session = EditorSession(store: store, noteID: UUID(), preferences: preferences)
         XCTAssertEqual(session.toolSettings.colors(for: .pen).count, 3)
-        XCTAssertEqual(session.toolSettings.colors(for: .marker).count, 6)
+        XCTAssertEqual(session.toolSettings.colors(for: .marker).count, 3)
         session.selectedTool = .marker; session.setFavoriteColors(["#FF0000", "#00FF00", "#0000FF", "#FFFF00"])
         session.toolSettings.toolbarOrder.reverse()
         session.toolSettings.hiddenTools.insert(.marker)

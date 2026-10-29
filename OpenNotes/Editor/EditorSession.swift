@@ -10,6 +10,50 @@ final class EditorSession: ObservableObject {
     @Published var background: UIImage?
     @Published var dirty = false
     @Published var busy = false
+    @Published var stickyInsertionColor: String?
+    @discardableResult func insertSticky(at point: CGPoint) async -> Bool {
+        guard !isReadOnly, let color = stickyInsertionColor, let page, point.x.isFinite, point.y.isFinite else { return false }
+        var note = PageElement(kind: .stickyNote)
+        note.text = ""; note.fillColorHex = color
+        let size = PageRenderer.size(page)
+        note.width = min(220, size.width); note.height = min(180, size.height)
+        note.x = min(max(0, point.x), size.width - note.width)
+        note.y = min(max(0, point.y), size.height - note.height)
+        guard await apply(.init(pageID: page.id, kind: .upsertElement, element: note)) else { return false }
+        stickyInsertionColor = nil; selectedTool = .lasso
+        return true
+    }
+    @Published var isReadOnly = false {
+        willSet { if newValue { commitStickyEdits() } }
+        didSet { if isReadOnly { stickyInsertionColor = nil; canvas.cancelActiveStroke() } }
+    }
+    private var stickyDrafts: [UUID: PageElement] = [:]
+    func stageStickyEdit(_ note: PageElement) {
+        guard !isReadOnly, page?.elements?.contains(where: { $0.id == note.id && $0.isLocked != true }) == true else { return }
+        stickyDrafts[note.id] = note
+        autosave?.cancel()
+        autosave = Task {
+            do { try await Task.sleep(nanoseconds: 700_000_000) } catch { return }
+            _ = await flush()
+        }
+    }
+    private func commitStickyEdits() {
+        guard !stickyDrafts.isEmpty, let page else { return }
+        let drafts = stickyDrafts
+        stickyDrafts = [:]
+        let elements = (page.elements ?? []).map { drafts[$0.id] ?? $0 }
+        if elements != (page.elements ?? []) { replaceContent(drawing, elements: elements, actionName: "Edit sticky text") }
+        if error != nil { stickyDrafts.merge(drafts) { _, draft in draft } }
+    }
+    private(set) var previousWritingTool = DrawingToolKind.pen
+    func finishErasing() {
+        if toolSettings.eraserAutoDeselect == true { selectedTool = previousWritingTool }
+    }
+    @discardableResult func clearPage() async -> Bool {
+        guard !isReadOnly, await flush(), page != nil else { return false }
+        replaceContent(InkDrawing(), elements: [], actionName: "Clear page")
+        return await flush()
+    }
     @Published var error: String?
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
@@ -29,11 +73,13 @@ final class EditorSession: ObservableObject {
     }
     func setFavoriteColors(_ colors: [String]) {
         let key = selectedTool == .fountainPen ? "pen" : selectedTool.rawValue
+        guard !colors.isEmpty, colors.count <= 12, colors.allSatisfy({ UIColor(presetHex: $0) != nil }) else { return }
         toolSettings.favoriteColors[key] = colors
     }
     @Published var selectedTool = DrawingToolKind.pen {
         didSet {
             guard oldValue != selectedTool else { return }
+            if oldValue.isWritingTool { previousWritingTool = oldValue }
             Diagnostics.shared.record("tool.selected", ["kind": selectedTool.rawValue])
             preferences.set(selectedTool.rawValue, forKey: "inkTool")
             restoreInstrument()
@@ -192,6 +238,8 @@ final class EditorSession: ObservableObject {
         }
     }
     @discardableResult func flush() async -> Bool {
+        commitStickyEdits()
+        guard stickyDrafts.isEmpty else { return false }
         autosave?.cancel(); autosave = nil
         if let writeTask { _ = await writeTask.value; return await flush() }
         if pending.isEmpty {
@@ -224,7 +272,7 @@ final class EditorSession: ObservableObject {
         return await task.value
     }
     func refresh(_ updated: NotePage) async {
-        guard await flush() else { return }
+        guard !isReadOnly, await flush() else { return }
         var updated = updated
         if let latest = store.library.page(id: updated.id) {
             updated.drawingRevision = latest.drawingRevision
@@ -235,21 +283,33 @@ final class EditorSession: ObservableObject {
         await open(updated.id)
     }
     @discardableResult func apply(_ action: DocumentAction) async -> Bool {
-        guard action.pageID == page?.id, await flush() else { return false }
-        let previousDrawing = drawing, previousElements = page?.elements ?? []
+        guard !isReadOnly, action.pageID == page?.id, await flush() else { return false }
         do {
-            try await store.apply(action)
-            guard await store.flush() else { self.error = store.error; return false }
-            error = nil
-            await open(action.pageID)
-            if error == nil, action.kind != .setBookmark {
-                registerContentUndo(previousDrawing, elements: previousElements, actionName: "Edit elements")
+            guard let current = page else { return false }
+            if action.kind == .setBookmark {
+                try await store.apply(action)
+                guard await store.flush() else { error = store.error; return false }
+                page = store.library.page(id: current.id)
+                return true
             }
-            return page?.id == action.pageID && error == nil
+            let updated = try action.applying(to: current)
+            if updated.elements == current.elements { return true }
+            for item in updated.elements ?? [] {
+                if let name = item.resource, resources[name] == nil {
+                    guard let bytes = try await store.disk.read(name) else { throw CocoaError(.fileNoSuchFile) }
+                    resources[name] = bytes
+                }
+            }
+            error = nil
+            replaceContent(drawing, elements: updated.elements ?? [], actionName: "Edit elements", attachObjects: true)
+            guard error == nil else { return false }
+            return await flush()
         } catch { Diagnostics.shared.failure("editor.failure", error: error); self.error = error.localizedDescription; return false }
     }
-    func replaceContent(_ drawing: InkDrawing, elements: [PageElement], actionName: String) {
-        guard let page else { return }
+    func replaceContent(_ drawing: InkDrawing, elements: [PageElement], actionName: String, attachObjects: Bool = false) {
+        guard !isReadOnly, let page else { return }
+        let elements = reconcileStickyElements(elements, previous: page.elements ?? [], attaching: attachObjects)
+        let drawing = reconcileStickyInk(drawing, previous: page.elements ?? [], updated: elements)
         do {
             let updated = try DocumentAction(pageID: page.id, kind: .setElements, elements: elements).applying(to: page)
             guard elements.allSatisfy({ $0.kind != .image || $0.resource.flatMap { resources[$0] } != nil }) else { throw CocoaError(.fileNoSuchFile) }
@@ -261,6 +321,7 @@ final class EditorSession: ObservableObject {
             canvas.drawing = drawing
             changed(drawing)
             refreshUndoAvailability()
+            error = nil
         } catch { self.error = error.localizedDescription }
     }
     private func registerContentUndo(_ drawing: InkDrawing, elements: [PageElement], actionName: String) {
@@ -270,7 +331,7 @@ final class EditorSession: ObservableObject {
         canvas.undoManager?.setActionName(actionName)
     }
     func insertImage(_ image: UIImage, at position: CGPoint? = nil) async {
-        guard await flush(), let original = page else { return }
+        guard !isReadOnly, await flush(), let original = page else { return }
         do {
             let (data, size) = try await Task.detached(priority: .userInitiated) { try ImportedImage.encode(image, crop: nil) }.value
             guard page?.id == original.id else { throw CocoaError(.userCancelled) }
@@ -287,6 +348,8 @@ final class EditorSession: ObservableObject {
         } catch { Diagnostics.shared.failure("editor.failure", error: error); self.error = error.localizedDescription }
     }
     func paste(at point: CGPoint) async {
+        guard !isReadOnly else { return }
+        if await pasteSelection(at: point) { return }
         guard await flush(), let page else { return }
         do {
             let size = PageRenderer.size(page)

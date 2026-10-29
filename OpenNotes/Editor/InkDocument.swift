@@ -106,19 +106,27 @@ struct InkStroke: Codable, Identifiable {
     var style: InkStyle?
     var transform: CGAffineTransform
     var randomSeed: UInt32
+    var vectorOutline: InkVectorPath?
+    var parentID: UUID?
+    var isLocked: Bool?
+    var zIndex: Double?
     init(ink: InkInk, path: InkStrokePath, transform: CGAffineTransform = .identity,
          randomSeed: UInt32 = 0, style: InkStyle? = nil,
          rawSamples: [InkStrokePoint]? = nil, id: UUID = UUID()) {
         self.id = id; self.ink = ink; self.path = path; self.transform = transform
         self.randomSeed = randomSeed; self.style = style; self.rawSamples = rawSamples ?? Array(path)
     }
-    private enum CodingKeys: String, CodingKey { case id, ink, path, rawSamples, style, transform, randomSeed }
+    private enum CodingKeys: String, CodingKey { case id, ink, path, rawSamples, style, transform, randomSeed, vectorOutline, parentID, isLocked, zIndex }
     init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         id = try box.decode(UUID.self, forKey: .id); ink = try box.decode(InkInk.self, forKey: .ink)
         path = try box.decode(InkStrokePath.self, forKey: .path)
         rawSamples = try box.decode([InkStrokePoint].self, forKey: .rawSamples)
         style = try box.decodeIfPresent(InkStyle.self, forKey: .style)
+        vectorOutline = try box.decodeIfPresent(InkVectorPath.self, forKey: .vectorOutline)
+        parentID = try box.decodeIfPresent(UUID.self, forKey: .parentID)
+        isLocked = try box.decodeIfPresent(Bool.self, forKey: .isLocked)
+        zIndex = try box.decodeIfPresent(Double.self, forKey: .zIndex)
         randomSeed = try box.decode(UInt32.self, forKey: .randomSeed)
         let t = try box.decode([Double].self, forKey: .transform)
         guard t.count == 6, t.allSatisfy({ $0.isFinite && abs($0) <= 1_000_000 }) else { throw InkDocumentError.invalidDocument }
@@ -128,13 +136,17 @@ struct InkStroke: Codable, Identifiable {
     func encode(to encoder: Encoder) throws {
         guard valid else { throw InkDocumentError.invalidDocument }
         var box = encoder.container(keyedBy: CodingKeys.self)
+        try box.encodeIfPresent(vectorOutline, forKey: .vectorOutline)
+        try box.encodeIfPresent(parentID, forKey: .parentID)
+        try box.encodeIfPresent(isLocked, forKey: .isLocked)
+        try box.encodeIfPresent(zIndex, forKey: .zIndex)
         try box.encode(id, forKey: .id); try box.encode(ink, forKey: .ink)
         try box.encode(path, forKey: .path); try box.encode(rawSamples, forKey: .rawSamples)
         try box.encodeIfPresent(style, forKey: .style); try box.encode(randomSeed, forKey: .randomSeed)
         try box.encode([transform.a, transform.b, transform.c, transform.d, transform.tx, transform.ty].map(Double.init), forKey: .transform)
     }
     fileprivate var valid: Bool {
-        guard path.count <= 1_000_000, rawSamples.count <= 1_000_000,
+        guard zIndex.map({ $0.isFinite && abs($0) <= 1_000_000 }) != false, vectorOutline?.valid != false, path.count <= 1_000_000, rawSamples.count <= 1_000_000,
               path.creationDate.timeIntervalSinceReferenceDate.isFinite,
               path.allSatisfy(\.valid), rawSamples.allSatisfy(\.valid),
               zip(rawSamples, rawSamples.dropFirst()).allSatisfy({ $0.timeOffset <= $1.timeOffset }),
@@ -147,6 +159,7 @@ struct InkStroke: Codable, Identifiable {
         return true
     }
     var renderBounds: CGRect {
+        if let vectorOutline { return vectorOutline.cgPath.boundingBoxOfPath.applying(transform) }
         var result = CGRect.null
         for point in path {
             let radius = max(point.size.width, point.size.height) / 2
@@ -219,6 +232,7 @@ struct InkStroke: Codable, Identifiable {
         return pieces
     }
     var paintedPath: CGPath {
+        if let vectorOutline { return vectorOutline.cgPath }
         let outline = CGMutablePath()
         for points in paintedPaths() {
             for point in points {
@@ -252,22 +266,23 @@ struct InkStroke: Codable, Identifiable {
 }
 
 struct InkDrawing: Codable {
-    private(set) var inkSchemaVersion = 1
+    private(set) var inkSchemaVersion = 2
     var strokes: [InkStroke]
     init(strokes: [InkStroke] = []) { self.strokes = strokes }
     init(data: Data) throws {
         guard data.count <= 128 * 1024 * 1024 else { throw InkDocumentError.invalidDocument }
         self = try JSONDecoder().decode(Self.self, from: data)
-        guard inkSchemaVersion == 1 else { throw InkDocumentError.unsupportedVersion }
+        guard (1...2).contains(inkSchemaVersion) else { throw InkDocumentError.unsupportedVersion }
         guard strokes.count <= 100_000, Set(strokes.map(\.id)).count == strokes.count,
               strokes.reduce(0, { $0 + $1.path.count + $1.rawSamples.count }) <= 4_000_000 else { throw InkDocumentError.invalidDocument }
     }
     func encodedData() throws -> Data {
-        guard inkSchemaVersion == 1, strokes.count <= 100_000,
+        guard (1...2).contains(inkSchemaVersion), strokes.count <= 100_000,
               Set(strokes.map(\.id)).count == strokes.count,
               strokes.reduce(0, { $0 + $1.path.count + $1.rawSamples.count }) <= 4_000_000 else { throw InkDocumentError.invalidDocument }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let result = try encoder.encode(self)
+        var latest = self; latest.inkSchemaVersion = 2
+        let result = try encoder.encode(latest)
         guard result.count <= 128 * 1024 * 1024 else { throw InkDocumentError.invalidDocument }
         return result
     }

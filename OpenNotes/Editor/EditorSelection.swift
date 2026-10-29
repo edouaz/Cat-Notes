@@ -3,6 +3,8 @@ import UIKit
 @MainActor
 extension EditorSession {
     func replaceDrawing(_ replacement: InkDrawing, actionName: String) {
+        guard !isReadOnly else { return }
+        let replacement = actionName == "Draw" ? attachingInk(replacement) : replacement
         let previous = canvas.drawing
         registerDrawingUndo(previous, actionName: actionName)
         canvas.drawing = replacement
@@ -17,10 +19,10 @@ extension EditorSession {
 
     @discardableResult
     func moveSelection(inside path: UIBezierPath, by requested: CGPoint) async -> Bool {
-        guard requested.x.isFinite, requested.y.isFinite, let pageID = page?.id,
+        guard !isReadOnly, requested.x.isFinite, requested.y.isFinite, let pageID = page?.id,
               await flush(), let original = page, original.id == pageID else { return false }
         let snapshot = SelectionMoveSnapshot(page: original, drawing: canvas.drawing, path: path, settings: toolSettings)
-        guard !snapshot.isEmpty else { return false }
+        guard !snapshot.isEmpty, !snapshot.containsLockedObjects else { return false }
         let delta = snapshot.clamped(requested)
         guard delta != .zero else { return false }
         let moved = (original.elements ?? []).map { element in
@@ -32,21 +34,22 @@ extension EditorSession {
             guard snapshot.strokeIndices.contains(index) else { return stroke }
             return InkDrawing(strokes: [stroke]).transformed(using: CGAffineTransform(translationX: delta.x, y: delta.y)).strokes[0]
         }
-        replaceContent(InkDrawing(strokes: strokes), elements: moved, actionName: "Move selection")
+        replaceContent(InkDrawing(strokes: strokes), elements: moved, actionName: "Move selection", attachObjects: true)
         return await flush()
     }
 
     @discardableResult
     func transformSelection(inside path: UIBezierPath, scale: CGFloat, deleting: Bool = false) async -> Bool {
-        guard scale.isFinite, (0.1...10).contains(scale), await flush(), let original = page else { return false }
+        guard !isReadOnly, scale.isFinite, (0.1...10).contains(scale), await flush(), let original = page else { return false }
         let drawing = canvas.drawing
-        let elements = DocumentClipboard.selectedElements(original, inside: path, settings: toolSettings)
-        let selected = drawing.strokes.map { toolSettings.includeHandwriting && DocumentClipboard.contains($0, inside: path) }
-        guard selected.contains(true) || !elements.isEmpty else { return false }
-        let ids = Set(elements.map(\.id))
+        let snapshot = SelectionMoveSnapshot(page: original, drawing: drawing, path: path, settings: toolSettings)
+        let elements = snapshot.elements
+        let selected = drawing.strokes.indices.map { snapshot.strokeIndices.contains($0) }
+        guard selected.contains(true) || !elements.isEmpty, !snapshot.containsLockedObjects else { return false }
+        let ids = snapshot.elementIDs
         var bounds = CGRect.null
         for (index, stroke) in drawing.strokes.enumerated() where selected[index] { bounds = bounds.union(stroke.renderBounds) }
-        for item in elements { bounds = bounds.union(CGRect(x: item.x, y: item.y, width: item.width, height: item.height)) }
+        for item in elements { bounds = bounds.union(item.visibleBounds) }
         let size = PageRenderer.size(original)
         let factor = min(scale, size.width / max(1, bounds.width), size.height / max(1, bounds.height))
         let x = min(max(0, bounds.midX - bounds.width * factor / 2), size.width - bounds.width * factor)
@@ -79,18 +82,62 @@ struct SelectionMoveSnapshot {
     let elements: [PageElement]
     let bounds: CGRect
     let pageSize: CGSize
+    let containsLockedObjects: Bool
+    let alignObjects: Bool
+    let alignmentX: [CGFloat]
+    let alignmentY: [CGFloat]
     var isEmpty: Bool { strokeIndices.isEmpty && elementIDs.isEmpty }
 
     init(page: NotePage, drawing: InkDrawing, path: UIBezierPath, settings: EditorToolSettings) {
-        let indices = Set(drawing.strokes.indices.filter { settings.includeHandwriting && DocumentClipboard.contains(drawing.strokes[$0], inside: path) })
+        let selectedElements = DocumentClipboard.selectedElements(page, inside: path, settings: settings)
+        var selectedIDs = Set(selectedElements.map(\.id))
+        // A selected parent owns its descendants, independently of lasso filters.
+        var changed = true
+        while changed {
+            let old = selectedIDs.count
+            for item in page.elements ?? [] where item.parentID.map({ selectedIDs.contains($0) }) == true { selectedIDs.insert(item.id) }
+            changed = old != selectedIDs.count
+        }
+        let indices = Set(drawing.strokes.indices.filter {
+            (settings.includeHandwriting && DocumentClipboard.contains(drawing.strokes[$0], inside: path)) || drawing.strokes[$0].parentID.map({ selectedIDs.contains($0) }) == true
+        })
+        let lockedParents = Set((page.elements ?? []).filter { $0.isLocked == true }.map(\.id))
+        containsLockedObjects = !lockedParents.isDisjoint(with: selectedIDs) || indices.contains { index in
+            drawing.strokes[index].isLocked == true || drawing.strokes[index].parentID.map { lockedParents.contains($0) } == true
+        }
         strokeIndices = indices
         ink = InkDrawing(strokes: drawing.strokes.enumerated().filter { indices.contains($0.offset) }.map(\.element))
-        elements = DocumentClipboard.selectedElements(page, inside: path, settings: settings)
-        elementIDs = Set(elements.map(\.id))
+        elements = (page.elements ?? []).filter { selectedIDs.contains($0.id) }
+        elementIDs = selectedIDs
         var rect = ink.strokes.isEmpty ? CGRect.null : ink.bounds
-        for item in elements { rect = rect.union(CGRect(x: item.x, y: item.y, width: item.width, height: item.height)) }
+        for item in elements { rect = rect.union(item.visibleBounds) }
         bounds = rect
         pageSize = PageRenderer.size(page)
+        alignObjects = settings.alignObjects ?? true
+        let neighbours = (page.elements ?? []).filter { !selectedIDs.contains($0.id) }.map(\.visibleBounds)
+        alignmentX = ([CGFloat.zero, pageSize.width / 2, pageSize.width] + neighbours.flatMap { [$0.minX, $0.midX, $0.maxX] }).sorted()
+        alignmentY = ([CGFloat.zero, pageSize.height / 2, pageSize.height] + neighbours.flatMap { [$0.minY, $0.midY, $0.maxY] }).sorted()
+    }
+
+    func snap(_ delta: CGPoint, tolerance: CGFloat) -> (CGPoint, CGPoint?) {
+        guard alignObjects, !isEmpty else { return (clamped(delta), nil) }
+        func nearest(_ value: CGFloat, in values: [CGFloat]) -> CGFloat? {
+            var low = 0, high = values.count
+            while low < high { let middle = (low + high) / 2; if values[middle] < value { low = middle + 1 } else { high = middle } }
+            return [low - 1, low].filter { values.indices.contains($0) }.map { values[$0] }.min { abs($0 - value) < abs($1 - value) }
+        }
+        func axis(_ anchors: [CGFloat], targets: [CGFloat], movement: CGFloat) -> (CGFloat, CGFloat?) {
+            let matches = anchors.compactMap { anchor -> (CGFloat, CGFloat)? in
+                guard let target = nearest(anchor + movement, in: targets), abs(target - anchor - movement) <= tolerance else { return nil }
+                return (target - anchor, target)
+            }
+            guard let match = matches.min(by: { abs($0.0 - movement) < abs($1.0 - movement) }) else { return (movement, nil) }
+            return match
+        }
+        let x = axis([bounds.minX, bounds.midX, bounds.maxX], targets: alignmentX, movement: delta.x)
+        let y = axis([bounds.minY, bounds.midY, bounds.maxY], targets: alignmentY, movement: delta.y)
+        let snapped = clamped(CGPoint(x: x.0, y: y.0))
+        return (snapped, x.1 == nil && y.1 == nil ? nil : CGPoint(x: x.1 ?? .nan, y: y.1 ?? .nan))
     }
 
     func clamped(_ delta: CGPoint) -> CGPoint {

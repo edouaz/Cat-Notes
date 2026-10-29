@@ -15,6 +15,7 @@ struct NotebookArchive: Codable, Sendable {
               pages.allSatisfy({ Self.validText($0.pdfText) && Self.validText($0.ocrText) && resources[$0.drawingResourceID] != nil &&
                   ($0.backgroundID == nil || resources[$0.backgroundID!] != nil) &&
                   ($0.width ?? 794) > 0 && ($0.width ?? 794) <= 20000 &&
+                  Self.validElements($0) &&
                   ($0.elements ?? []).allSatisfy { item in
                       item.x.isFinite && item.y.isFinite && item.width > 0 && item.width <= 20000 && item.height > 0 && item.height <= 20000 &&
                       (item.kind != .image || item.resource.flatMap { resources[$0] } != nil)
@@ -22,6 +23,11 @@ struct NotebookArchive: Codable, Sendable {
                   ($0.height ?? 1123) > 0 && ($0.height ?? 1123) <= 20000 }) else {
             throw CocoaError(.fileReadCorruptFile)
         }
+    }
+    static func validElements(_ page: NotePage) -> Bool {
+        let elements = page.elements ?? []
+        let action = DocumentAction(pageID: page.id, kind: .setElements, elements: elements)
+        return DocumentAction.validHierarchy(elements) && elements.allSatisfy { action.valid($0, on: page) }
     }
     static func validText(_ content: PageTextContent?) -> Bool {
         guard let content else { return true }
@@ -39,6 +45,7 @@ struct NotebookArchive: Codable, Sendable {
 }
 
 actor DiskStore {
+    private var checkedInkBackups: Set<String> = []
     private var renderingThumbnail = false
     private var thumbnailWaiters: [CheckedContinuation<Void, Never>] = []
     private func acquireThumbnailRenderer() async {
@@ -109,7 +116,7 @@ actor DiskStore {
                   !note.pageIDs.isEmpty && note.pageIDs == library.pages(in: note.id).map(\.id) &&
                   Set(note.pageIDs).count == note.pageIDs.count && library.folder(id: note.folderID) != nil
               }),
-              library.pages.allSatisfy({ NotebookArchive.validText($0.pdfText) && NotebookArchive.validText($0.ocrText) && NotebookArchive.safeResource($0.drawingResourceID) && ($0.backgroundID == nil || NotebookArchive.safeResource($0.backgroundID!)) }) else { throw CocoaError(.fileReadCorruptFile) }
+              library.pages.allSatisfy({ NotebookArchive.validElements($0) && NotebookArchive.validText($0.pdfText) && NotebookArchive.validText($0.ocrText) && NotebookArchive.safeResource($0.drawingResourceID) && ($0.backgroundID == nil || NotebookArchive.safeResource($0.backgroundID!)) }) else { throw CocoaError(.fileReadCorruptFile) }
     }
     func save(_ library: NoteLibrarySnapshot) throws {
         try validate(library)
@@ -137,7 +144,21 @@ actor DiskStore {
         guard NotebookArchive.safeResource(name) else { throw CocoaError(.fileWriteInvalidFileName) }
         let folder = root.appendingPathComponent("resources")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try data.write(to: folder.appendingPathComponent(name), options: .atomic)
+        let destination = folder.appendingPathComponent(name)
+        if name.hasSuffix(".drawing"), !checkedInkBackups.contains(name) {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                let previous = try Data(contentsOf: destination)
+                if let document = try? JSONSerialization.jsonObject(with: previous) as? [String: Any],
+                   document["inkSchemaVersion"] as? Int == 1 {
+                    let backups = root.appendingPathComponent("ink-schema-backups")
+                    try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+                    let backup = backups.appendingPathComponent(name)
+                    if !FileManager.default.fileExists(atPath: backup.path) { try previous.write(to: backup, options: .atomic) }
+                }
+                checkedInkBackups.insert(name)
+            }
+        }
+        try data.write(to: destination, options: .atomic)
         resourceGeneration[name, default: 0] += 1
     }
     func archive(note: NoteDocument, pages: [NotePage]) throws -> NotebookArchive {

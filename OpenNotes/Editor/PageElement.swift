@@ -10,6 +10,11 @@ struct PageElement: Codable, Identifiable, Equatable, Sendable {
     var height: Double = 120
     var text = "Text"
     var resource: String?
+    var rotation: Double?
+    var isLocked: Bool?
+    var parentID: UUID?
+    var zIndex: Double?
+    var richTextRTF: Data?
     var collapsed: Bool?
     var textFontSize: Double?
     var textColorHex: String?

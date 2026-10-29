@@ -97,6 +97,11 @@ private struct NotebookTabs: View {
             ScrollViewReader { reader in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
+                        Button {
+                            Task { await workspace.returnToLibrary(); if workspace.active == nil { didCloseLastTab() } }
+                        } label: {
+                            Label("Library", systemImage: "square.grid.2x2").labelStyle(.iconOnly).frame(width: 48, height: 44)
+                        }.buttonStyle(.plain).accessibilityIdentifier("workspace.tabLibrary")
                         ForEach(workspace.tabs, id: \.self) { id in
                             NotebookTab(
                                 title: store.library.note(id: id)?.title ?? "Notebook",
@@ -126,7 +131,7 @@ private struct NotebookTabs: View {
             }
         }
         .frame(height: 52)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(OpenNotesStyle.rail)
         .overlay(alignment: .bottom) { Divider() }
         .alert("Rename notebook", isPresented: Binding(
             get: { renamedID != nil }, set: { if !$0 { renamedID = nil } }
@@ -171,7 +176,7 @@ private struct NotebookTab: View {
             }.accessibilityHint("Close the tab and keep the notebook")
         }
         .buttonStyle(.plain)
-        .background(selected ? Color(uiColor: .systemBackground) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(selected ? OpenNotesStyle.chrome : .clear, in: RoundedRectangle(cornerRadius: 12))
         .overlay(alignment: .bottom) {
             if selected { Rectangle().fill(OpenNotesStyle.accent).frame(height: 2).padding(.horizontal, 12) }
         }

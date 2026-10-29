@@ -12,7 +12,7 @@ final class CustomEditorExperienceTests: XCTestCase {
                                "-openNotebooks", "()", "-activeNotebook", ""]
         app.launch()
         if app.buttons["workspace.library"].waitForExistence(timeout: 3) { app.buttons["workspace.library"].tap() }
-        XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10)); app.buttons["library.create"].tap()
+        XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10)); app.buttons["library.create"].tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         XCTAssertTrue(app.buttons["editor.pages"].waitForExistence(timeout: 10))
     }
     override func tearDownWithError() throws {

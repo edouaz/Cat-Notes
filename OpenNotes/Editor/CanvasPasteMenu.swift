@@ -13,7 +13,7 @@ extension PageScrollView: UIEditMenuInteractionDelegate {
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration, suggestedActions: [UIMenuElement]) -> UIMenu? {
         let point = configuration.sourcePoint
         let clipboard = UIPasteboard.general
-        let available = clipboard.contains(pasteboardTypes: [DocumentClipboard.inkType]) || clipboard.hasImages || clipboard.hasStrings
+        let available = clipboard.contains(pasteboardTypes: [DocumentClipboard.selectionType, DocumentClipboard.inkType]) || clipboard.hasImages || clipboard.hasStrings
         return UIMenu(children: [UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard"), attributes: available ? [] : .disabled) { [weak self] _ in self?.requestPaste(at: point) }])
     }
 }

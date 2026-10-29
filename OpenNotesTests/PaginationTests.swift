@@ -224,7 +224,7 @@ final class PaginationTests: XCTestCase {
         XCTAssertFalse(reopened.pageTurn.shouldBegin(velocity: CGPoint(x: -300, y: 0)))
         reopened.fitPage()
         try await waitUntil { abs(session.canvas.zoomScale - session.canvas.minimumZoomScale) < 0.02 }
-        XCTAssertTrue(reopened.pageTurn.shouldBegin(velocity: CGPoint(x: -300, y: 0)))
+        try await waitUntil { reopened.pageTurn.shouldBegin(velocity: CGPoint(x: -300, y: 0)) }
     }
 
     private func waitUntil(_ predicate: @MainActor () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {

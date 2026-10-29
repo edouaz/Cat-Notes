@@ -10,7 +10,7 @@ final class NativeInkInteractionUITests: XCTestCase {
         defer { app.terminate() }
         if app.buttons["workspace.library"].waitForExistence(timeout: 3) { app.buttons["workspace.library"].tap() }
         XCTAssertTrue(app.buttons["library.create"].waitForExistence(timeout: 10))
-        app.buttons["library.create"].tap()
+        app.buttons["library.create"].tap(); XCTAssertTrue(app.buttons["library.new.confirm"].waitForExistence(timeout: 5)); app.buttons["library.new.confirm"].tap()
         let canvas = app.scrollViews["editor.canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         let tab = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.tab.")).firstMatch

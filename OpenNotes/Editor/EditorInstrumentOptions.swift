@@ -3,6 +3,8 @@ import SwiftUI
 struct EditorInstrumentOptions: View {
     @ObservedObject var session: EditorSession
     var done: () -> Void
+    @State private var hex = ""
+    @State private var clearShown = false
     private var colors: [String] { session.toolSettings.colors(for: session.selectedTool) }
     private var isPen: Bool { session.selectedTool == .pen || session.selectedTool == .fountainPen }
     private var documentWidth: Double { session.documentInkWidth }
@@ -36,6 +38,9 @@ struct EditorInstrumentOptions: View {
         }
         .frame(idealWidth: 380, idealHeight: 620)
         .presentationDetents([.large])
+        .confirmationDialog("Clear editable content on this page?", isPresented: $clearShown, titleVisibility: .visible) {
+            Button("Clear page", role: .destructive) { Task { _ = await session.clearPage() } }
+        } message: { Text("The paper and original PDF stay intact. You can undo this action.") }
     }
 
     @ViewBuilder private var writingOptions: some View {
@@ -118,6 +123,14 @@ struct EditorInstrumentOptions: View {
             }
         }
         optionSection("Favorite colors") {
+            HStack {
+                TextField("#RRGGBB", text: $hex).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                    .accessibilityLabel("HEX color").accessibilityIdentifier("instrument.hex")
+                Button("Apply") {
+                    if let color = UIColor(presetHex: hex) { session.setInkColor(Color(color)) }
+                }.disabled(UIColor(presetHex: hex) == nil).frame(minHeight: 44)
+            }
+            if !hex.isEmpty && UIColor(presetHex: hex) == nil { Text("Enter a valid color, such as #315BB1.").font(.caption).foregroundStyle(.red) }
             ForEach(Array(colors.enumerated()), id: \.offset) { index, _ in
                 HStack(spacing: 8) {
                     ColorPicker("Favorite \(index + 1)", selection: Binding(get: {
@@ -136,27 +149,34 @@ struct EditorInstrumentOptions: View {
                             var updated = colors
                             guard updated.indices.contains(index) else { return }
                             updated.remove(at: index); session.setFavoriteColors(updated)
-                        }
+                        }.disabled(colors.count <= 1)
                     } label: {
                         Label("Options for favorite \(index + 1)", systemImage: "ellipsis")
                             .labelStyle(.iconOnly).frame(width: 44, height: 44).contentShape(Rectangle())
                     }.accessibilityIdentifier("instrument.favorite.options.\(index)")
                 }
             }
-            if colors.count < 64 {
+            if colors.count < 12 {
                 Button("Add current color", systemImage: "plus.circle") {
                     session.setFavoriteColors(colors + [session.paperInkColor.presetHex])
                 }.frame(minHeight: 44)
             }
+            Button("Reset this palette") {
+                let key = session.selectedTool == .fountainPen ? "pen" : session.selectedTool.rawValue
+                session.toolSettings.favoriteColors[key] = nil
+            }.frame(minHeight: 44)
         }
     }
 
     private var eraserOptions: some View {
         optionSection("Erasing") {
-            Picker("Mode", selection: $session.toolSettings.eraserMode) {
-                Text("Whole stroke").tag(EditorToolSettings.EraserMode.stroke)
-                Text("Pixel").tag(EditorToolSettings.EraserMode.pixel)
-                Text("Intelligent").tag(EditorToolSettings.EraserMode.intelligent)
+            Picker("Mode", selection: Binding(get: {
+                let mode = session.toolSettings.eraserMode
+                return mode == .pixel || mode == .intelligent ? .standard : mode
+            }, set: { session.toolSettings.eraserMode = $0 })) {
+                Text("Precision").tag(EditorToolSettings.EraserMode.precision)
+                Text("Standard").tag(EditorToolSettings.EraserMode.standard)
+                Text("Stroke").tag(EditorToolSettings.EraserMode.stroke)
             }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("instrument.eraser.mode")
             HStack {
                 Text("Size")
@@ -164,8 +184,12 @@ struct EditorInstrumentOptions: View {
                 Text("\(Int(session.toolSettings.eraserWidth)) pt document").monospacedDigit().foregroundStyle(.secondary)
             }
             Slider(value: $session.toolSettings.eraserWidth, in: 4...100, step: 1).accessibilityLabel("Eraser size")
-            Text("Intelligent: removes a small stroke inside the eraser; cuts the touched section of a larger stroke. Images and sticky notes remain unchanged.")
+            Toggle("Erase pen and pencil", isOn: Binding(get: { session.toolSettings.erasePen != false }, set: { session.toolSettings.erasePen = $0 }))
+            Toggle("Erase highlighter", isOn: Binding(get: { session.toolSettings.eraseHighlighter != false }, set: { session.toolSettings.eraseHighlighter = $0 }))
+            Toggle("Return to previous tool", isOn: Binding(get: { session.toolSettings.eraserAutoDeselect == true }, set: { session.toolSettings.eraserAutoDeselect = $0 }))
+            Text("Precision removes only the touched ink. Standard cuts a short section. Stroke removes a complete stroke. Size stays constant in page units.")
                 .font(.footnote).foregroundStyle(.secondary)
+            Button("Clear page", role: .destructive) { clearShown = true }.frame(minHeight: 44)
         }
     }
     @ViewBuilder private var lassoOptions: some View {
